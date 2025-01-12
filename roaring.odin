@@ -44,11 +44,14 @@ dense_container_init :: proc() -> Dense_Container {
 	return dc
 }
 
+// TODO: Add an error to be returned here if the value cannot be
+// found in the bitmap.
+//
 // If a container doesn’t already exist then create a new array container,
 // add it to the Roaring bitmap’s first-level index, and add N to the array.
-roaring_set :: proc(n: u32be, roaring_bitmap: ^Roaring_Bitmap) {
+roaring_set :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 	// If the value is already in the bitmap, do nothing.
-	if roaring_is_set(n, roaring_bitmap^) {
+	if roaring_is_set(rb^, n) {
 		return
 	}
 
@@ -57,15 +60,15 @@ roaring_set :: proc(n: u32be, roaring_bitmap: ^Roaring_Bitmap) {
 
 	// If there is no container to put the value in, create a new Sparse_Container
 	// first and insert the value into it, and add to the roaring bitmap.
-	if !(i in roaring_bitmap) {
+	if !(i in rb) {
 		sc := sparse_container_init()
 		set_packed_array(&sc, j)
-		roaring_bitmap[i] = sc
+		rb[i] = sc
 		return
 	}
 
 	// If the container does exist, add it to the correct one.
-	container := roaring_bitmap[i]
+	container := rb[i]
 	switch &c in container {
 	case Sparse_Container:
 		// If an array container has 4,096 integers, first convert it to a
@@ -73,31 +76,31 @@ roaring_set :: proc(n: u32be, roaring_bitmap: ^Roaring_Bitmap) {
 		if c.cardinality == 4096 {
 			dc := convert_container_from_sparse_to_dense(c)
 			set_bitmap(&dc, j)
-			roaring_bitmap[i] = dc
+			rb[i] = dc
 		} else {
 			set_packed_array(&c, j)
-			roaring_bitmap[i] = c
+			rb[i] = c
 		}
 	case Dense_Container:
 		set_bitmap(&c, j)
-		roaring_bitmap[i] = c
+		rb[i] = c
 	}
 }
 
-roaring_unset :: proc(n: u32be, roaring_bitmap: ^Roaring_Bitmap) {
+roaring_unset :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 	// If the value is not in the bitmap, do nothing.
-	if !roaring_is_set(n, roaring_bitmap^) {
+	if !roaring_is_set(rb^, n) {
 		return
 	}
 
 	i := most_significant(n)
 	j := least_significant(n)
 
-	container := roaring_bitmap[i]
+	container := rb[i]
 	switch &c in container {
 	case Sparse_Container:
 		unset_packed_array(&c, j)
-		roaring_bitmap[i] = c
+		rb[i] = c
 	case Dense_Container:
 		unset_bitmap(&c, j)
 
@@ -105,24 +108,24 @@ roaring_unset :: proc(n: u32be, roaring_bitmap: ^Roaring_Bitmap) {
 		// the dense bitmap back into the packed array (eg. sparse) representation.
 		if c.cardinality == 4096 {
 			sc := convert_container_from_dense_to_sparse(c)
-			roaring_bitmap[i] = sc
+			rb[i] = sc
 		} else {
-			roaring_bitmap[i] = c
+			rb[i] = c
 		}
 	}
 
 	// If we have removed the last element in a container, remove that key entirely.
-	container = roaring_bitmap[i]
+	container = rb[i]
 	switch c in container {
 	case Sparse_Container:
 		if c.cardinality == 0 {
-			delete_key(roaring_bitmap, i)
+			delete_key(rb, i)
 		}
 	// NOTE: This case should never occur in regular usage because we convert dense
 	// containers to sparse containers when they fall down to <4096 elements.
 	case Dense_Container:
 		if c.cardinality == 0 {
-			delete_key(roaring_bitmap, i)
+			delete_key(rb, i)
 		}
 	}
 }
@@ -133,13 +136,13 @@ roaring_unset :: proc(n: u32be, roaring_bitmap: ^Roaring_Bitmap) {
 // Checking for existence in array and bitmap containers works differently:
 //   Bitmap: check if the bit at N % 2^16 is set.
 //   Array: use binary search to find N % 2^16 in the sorted array.
-roaring_is_set :: proc(n: u32be, roaring_bitmap: Roaring_Bitmap) -> (found: bool) {
+roaring_is_set :: proc(rb: Roaring_Bitmap, n: u32be) -> (found: bool) {
 	i := most_significant(n)
-	if !(i in roaring_bitmap) {
+	if !(i in rb) {
 		return false
 	}
 
-	container := roaring_bitmap[i]
+	container := rb[i]
 	j := least_significant(n)
 	switch c in container {
 	case Sparse_Container:
@@ -515,12 +518,12 @@ main :: proc() {
 
 	rb1 := make(Roaring_Bitmap)
 	for i in 0..=4097 {
-		roaring_set(u32be(i), &rb1)
+		roaring_set(&rb1, u32be(i))
 	}
 
 	rb2 := make(Roaring_Bitmap)
 	for i in 4090..=10000 {
-		roaring_set(u32be(i), &rb2)
+		roaring_set(&rb2, u32be(i))
 	}
 	fmt.println(rb2)
 
