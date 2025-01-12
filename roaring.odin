@@ -35,13 +35,29 @@ sparse_container_init :: proc() -> Sparse_Container {
 	return sc
 }
 
+sparse_container_free :: proc(sc: Sparse_Container) {
+	delete(sc.packed_array)
+}
+
 dense_container_init :: proc() -> Dense_Container {
-	arr := new([8192]u8)
+	arr: [8192]u8
 	dc := Dense_Container{
-		bitmap=arr^,
+		bitmap=arr,
 		cardinality=0,
 	}
 	return dc
+}
+
+roaring_free :: proc(rb: Roaring_Bitmap) {
+	for key, container in rb {
+		switch c in container {
+		case Sparse_Container:
+			sparse_container_free(c)
+		case Dense_Container:
+		}
+	}
+
+	delete(rb)
 }
 
 // TODO: Add an error to be returned here if the value cannot be
@@ -238,6 +254,7 @@ convert_container_from_sparse_to_dense :: proc(sc: Sparse_Container) -> Dense_Co
 		set_bitmap(&dc, i)
 	}
 
+	sparse_container_free(sc)
 	return dc
 }
 
@@ -256,6 +273,25 @@ convert_container_from_dense_to_sparse :: proc(dc: Dense_Container) -> Sparse_Co
 	}
 
 	return sc
+}
+
+clone_container :: proc(container: Container) -> Container {
+	cloned: Container
+
+	switch c in container {
+	case Sparse_Container:
+		new_packed_array := slice.clone_to_dynamic(c.packed_array[:])
+		cloned = Sparse_Container{
+			packed_array=new_packed_array,
+			cardinality=c.cardinality,
+		}
+	case Dense_Container:
+		dc := dense_container_init()
+		dc.bitmap = c.bitmap
+		cloned = dc
+	}
+
+	return cloned
 }
 
 // Performs an intersection of two Roaring_Bitmap structures.
@@ -296,7 +332,7 @@ roaring_union :: proc(rb1: Roaring_Bitmap, rb2: Roaring_Bitmap) -> Roaring_Bitma
 		// If the container in the first Roaring_Bitmap does not exist in the second,
 		// then just copy that container to the new, unioned bitmap.
 		if !(k1 in rb2) {
-			rb[k1] = new_clone(v1)^
+			rb[k1] = clone_container(v1)
 		}
 
 		if k1 in rb2 {
@@ -325,7 +361,7 @@ roaring_union :: proc(rb1: Roaring_Bitmap, rb2: Roaring_Bitmap) -> Roaring_Bitma
 	// not present in the first.
 	for k2, v2 in rb2 {
 		if !(k2 in rb1) {
-			rb[k2] = new_clone(v2)^
+			rb[k2] = clone_container(v2)
 		}
 	}
 
@@ -385,32 +421,30 @@ intersection_array_with_array :: proc(sc1: Sparse_Container, sc2: Sparse_Contain
 // the bitCount function, we compute cardinality, and then convert the bitmap into
 // an array container if the cardinality is at most 4096.
 union_array_with_array :: proc(sc1: Sparse_Container, sc2: Sparse_Container) -> Container {
-	c: Container
-
 	if (sc1.cardinality + sc2.cardinality) <= 4096 {
-		c = sparse_container_init()
+		sc := sparse_container_init()
 		for v in sc1.packed_array {
-			set_packed_array(&c.(Sparse_Container), v)
+			set_packed_array(&sc, v)
 		}
 		// Only add the values from the second array *if* it has not already been added.
 		for v in sc2.packed_array {
-			if !is_set_packed_array(c.(Sparse_Container), v) {
-				set_packed_array(&c.(Sparse_Container), v)
+			if !is_set_packed_array(sc, v) {
+				set_packed_array(&sc, v)
 			}
 		}
+		return sc
 	} else {
-		c = dense_container_init()
+		dc := dense_container_init()
 		for v in sc1.packed_array {
-			set_bitmap(&c.(Dense_Container), v)
+			set_bitmap(&dc, v)
 		}
 		for v in sc2.packed_array {
-			if !is_set_bitmap(c.(Dense_Container), v) {
-				set_bitmap(&c.(Dense_Container), v)
+			if !is_set_bitmap(dc, v) {
+				set_bitmap(&dc, v)
 			}
 		}
+		return dc
 	}
-
-	return c
 }
 
 // The intersection between an array and a bitmap container can be computed
@@ -430,13 +464,15 @@ intersection_array_with_bitmap :: proc(sc: Sparse_Container, dc: Dense_Container
 // Unions are also efficient: we create a copy of the bitmap and iterate over the
 // array, setting the corresponding bits.
 union_array_with_bitmap :: proc(sc: Sparse_Container, dc: Dense_Container) -> Dense_Container {
-	new_dc := dense_container_init()
-	new_dc.bitmap = new_clone(dc.bitmap)^
+	new_container := clone_container(dc)
+	new_dc := new_container.(Dense_Container)
+
 	for v in sc.packed_array {
 		if !is_set_bitmap(new_dc, v) {
 			set_bitmap(&new_dc, v)
 		}
 	}
+
 	return new_dc
 }
 

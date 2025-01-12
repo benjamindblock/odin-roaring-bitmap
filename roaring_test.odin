@@ -6,6 +6,8 @@ import "core:testing"
 @(test)
 test_setting_values_works_for_sparse :: proc(t: ^testing.T) {
 	rb := make(Roaring_Bitmap)
+	defer roaring_free(rb)
+
 	roaring_set(&rb, 0)
 	roaring_set(&rb, 1)
 	roaring_set(&rb, 2)
@@ -49,6 +51,8 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 	// Create a Roaring_Bitmap and assert that setting up to
 	// 4096 values will use a Sparse_Container.
 	rb := make(Roaring_Bitmap)
+	defer roaring_free(rb)
+
 	for i in 0..<4096 {
 		roaring_set(&rb, u32be(i))
 	}
@@ -96,6 +100,8 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 @(test)
 test_multiple_sparse_containers :: proc(t: ^testing.T) {
 	rb := make(Roaring_Bitmap)
+	defer roaring_free(rb)
+
 	roaring_set(&rb, 0)
 	roaring_set(&rb, 1)
 	roaring_set(&rb, 123456789)
@@ -123,6 +129,10 @@ test_intersection_sparse :: proc(t: ^testing.T) {
 	rb3 := roaring_intersection(rb1, rb2)
 	testing.expect_value(t, roaring_is_set(rb3, 0), false)
 	testing.expect_value(t, roaring_is_set(rb3, 1), true)
+
+	roaring_free(rb1)
+	roaring_free(rb2)
+	roaring_free(rb3)
 }
 
 @(test)
@@ -141,6 +151,10 @@ test_intersection_sparse_and_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 1), true)
 	testing.expect_value(t, roaring_is_set(rb3, 2), false)
 	testing.expect_value(t, roaring_is_set(rb3, 4096), false)
+
+	roaring_free(rb1)
+	roaring_free(rb2)
+	roaring_free(rb3)
 }
 
 @(test)
@@ -160,6 +174,10 @@ test_intersection_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 4095), false)
 	testing.expect_value(t, roaring_is_set(rb3, 4096), true)
 	testing.expect_value(t, roaring_is_set(rb3, 4097), false)
+
+	roaring_free(rb1)
+	roaring_free(rb2)
+	roaring_free(rb3)
 }
 
 @(test)
@@ -175,6 +193,10 @@ test_union_sparse :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(rb3), 1)
 	testing.expect_value(t, roaring_is_set(rb3, 0), true)
 	testing.expect_value(t, roaring_is_set(rb3, 1), true)
+
+	roaring_free(rb1)
+	roaring_free(rb2)
+	roaring_free(rb3)
 }
 
 @(test)
@@ -195,6 +217,10 @@ test_union_sparse_and_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 2), true)
 	testing.expect_value(t, roaring_is_set(rb3, 4096), true)
 	testing.expect_value(t, roaring_is_set(rb3, 4097), false)
+
+	roaring_free(rb1)
+	roaring_free(rb2)
+	roaring_free(rb3)
 }
 
 @(test)
@@ -219,4 +245,16 @@ test_union_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 123456789), true)
 	testing.expect_value(t, roaring_is_set(rb3, 123456800), true)
 	testing.expect_value(t, roaring_is_set(rb3, 123456801), false)
+
+	roaring_free(rb1)
+	roaring_free(rb2)
+	roaring_free(rb3)
+}
+
+@(test)
+test_bit_count :: proc(t: ^testing.T) {
+	testing.expect_value(t, bit_count(0), 0)
+	testing.expect_value(t, bit_count(1), 1)
+	testing.expect_value(t, bit_count(2), 1)
+	testing.expect_value(t, bit_count(3), 2)
 }
