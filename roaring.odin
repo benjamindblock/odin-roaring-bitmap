@@ -96,6 +96,33 @@ insert_to_roaring :: proc(n: u32be, index: ^Index) {
 	}
 }
 
+remove_from_roaring :: proc(n: u32be, index: ^Index) {
+	// If the value is not in the bitmap, do nothing.
+	if !is_present(n, index^) {
+		return
+	}
+
+	i := most_significant(n)
+	j := least_significant(n)
+
+	container := index[i]
+	switch &c in container {
+	case Sparse_Container:
+		found_i, _ := slice.binary_search(c.packed_array[:], j)
+		ordered_remove(&c.packed_array, found_i)
+		c.cardinality -= 1
+		index[i] = c
+	case Dense_Container:
+		unset_bitmap(&c, j)
+		if c.cardinality == 4096 {
+			sc := convert_from_dense_to_sparse(c)
+			index[i] = sc
+		} else {
+			index[i] = c
+		}
+	}
+}
+
 // To check if an integer N exists, get N’s 16 most significant bits (N / 2^16)
 // and use it to find N’s corresponding container in the Roaring bitmap.
 // If the container doesn’t exist, then N is not in the Roaring bitmap.
@@ -147,6 +174,20 @@ set_bitmap :: proc(dc: ^Dense_Container, n: u16be) {
 	dc.cardinality += 1
 }
 
+unset_bitmap :: proc(dc: ^Dense_Container, n: u16be) {
+	bitmap := dc.bitmap
+
+	byte_i := n / 8
+	bit_i := n - (byte_i * 8)
+	mask := u8(1 << bit_i)
+
+	byte := bitmap[byte_i]
+	bitmap[byte_i] = byte & ~mask
+
+	dc.bitmap = bitmap
+	dc.cardinality -= 1
+}
+
 // TODO: Make sure to deallocate the Sparse_Container here.
 convert_from_sparse_to_dense :: proc(sc: Sparse_Container) -> Dense_Container {
 	dc := dense_container_init()
@@ -156,6 +197,25 @@ convert_from_sparse_to_dense :: proc(sc: Sparse_Container) -> Dense_Container {
 	}
 
 	return dc
+}
+
+// TODO: Make sure to deallocate the Sparse_Container here.
+convert_from_dense_to_sparse :: proc(dc: Dense_Container) -> Sparse_Container {
+	sc := sparse_container_init()
+
+	for byte, i in dc.bitmap {
+		for j in 0..<8 {
+			total_i := u16be((i * 8) + j)
+			is_set := (byte & (1 << u8(j))) != 0
+
+			if is_set {
+				append(&sc.packed_array, total_i)
+				sc.cardinality += 1
+			}
+		}
+	}
+
+	return sc
 }
 
 // TODO: Add some assertions.
@@ -175,10 +235,6 @@ is_set_bitmap :: proc(dc: Dense_Container, n: u32be) -> (found: bool) {
 
 	return found
 }
-
-// check_bitmap :: proc(dc: ^Dense_Container) -> bool {
-// 	return false
-// }
 
 main :: proc() {
 	fmt.println("Hello, world!")
@@ -205,9 +261,17 @@ main :: proc() {
 		insert_to_roaring(u32be(i), &index)
 	}
 
-	insert_to_roaring(12345678, &index)
+	// insert_to_roaring(12345678, &index)
+	fmt.println(index)
+	remove_from_roaring(u32be(0), &index)
 	fmt.println(index)
 
+	remove_from_roaring(u32be(1), &index)
+	fmt.println(index)
+
+	insert_to_roaring(u32be(1), &index)
+	insert_to_roaring(u32be(0), &index)
+	fmt.println(index)
 
 	// dc := dense_container_init()
 	// set_bitmap(&dc, 15)
