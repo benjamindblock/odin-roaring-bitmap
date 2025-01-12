@@ -1,8 +1,8 @@
 package roaring
 
 import "core:fmt"
+import "core:mem"
 import "core:slice"
-// import "core:mem"
 
 MOST_SIG: u32 = 0b00000000000000001111111111111111
 LEAST_SIG: u32 = 0b11111111111111110000000000000000
@@ -24,9 +24,30 @@ Container :: union {
 	Dense_Container,
 }
 
-Roaring_Bitmap :: distinct map[u16be]Container
+Container_Index :: distinct map[u16be]Container
 
-sparse_container_init :: proc() -> Sparse_Container {
+Roaring_Bitmap :: struct {
+	index: Container_Index,
+	allocator: mem.Allocator,
+}
+
+roaring_init :: proc(allocator := context.allocator) -> Roaring_Bitmap {
+	index := make(Container_Index)
+	return Roaring_Bitmap{index=index, allocator=allocator}
+}
+
+roaring_free :: proc(rb: Roaring_Bitmap) {
+	for key, container in rb.index {
+		switch c in container {
+		case Sparse_Container:
+			sparse_container_free(c)
+		case Dense_Container:
+		}
+	}
+	delete(rb.index)
+}
+
+sparse_container_init :: proc(allocator := context.allocator) -> Sparse_Container {
 	arr := make([dynamic]u16be)
 	sc := Sparse_Container{
 		packed_array=arr,
@@ -48,18 +69,6 @@ dense_container_init :: proc() -> Dense_Container {
 	return dc
 }
 
-roaring_free :: proc(rb: Roaring_Bitmap) {
-	for key, container in rb {
-		switch c in container {
-		case Sparse_Container:
-			sparse_container_free(c)
-		case Dense_Container:
-		}
-	}
-
-	delete(rb)
-}
-
 // TODO: Add an error to be returned here if the value cannot be
 // found in the bitmap.
 //
@@ -76,15 +85,15 @@ roaring_set :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 
 	// If there is no container to put the value in, create a new Sparse_Container
 	// first and insert the value into it, and add to the roaring bitmap.
-	if !(i in rb) {
-		sc := sparse_container_init()
+	if !(i in rb.index) {
+		sc := sparse_container_init(rb.allocator)
 		set_packed_array(&sc, j)
-		rb[i] = sc
+		rb.index[i] = sc
 		return
 	}
 
 	// If the container does exist, add it to the correct one.
-	container := rb[i]
+	container := rb.index[i]
 	switch &c in container {
 	case Sparse_Container:
 		// If an array container has 4,096 integers, first convert it to a
@@ -92,14 +101,14 @@ roaring_set :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 		if c.cardinality == 4096 {
 			dc := convert_container_from_sparse_to_dense(c)
 			set_bitmap(&dc, j)
-			rb[i] = dc
+			rb.index[i] = dc
 		} else {
 			set_packed_array(&c, j)
-			rb[i] = c
+			rb.index[i] = c
 		}
 	case Dense_Container:
 		set_bitmap(&c, j)
-		rb[i] = c
+		rb.index[i] = c
 	}
 }
 
@@ -112,36 +121,36 @@ roaring_unset :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 	i := most_significant(n)
 	j := least_significant(n)
 
-	container := rb[i]
+	container := rb.index[i]
 	switch &c in container {
 	case Sparse_Container:
 		unset_packed_array(&c, j)
-		rb[i] = c
+		rb.index[i] = c
 	case Dense_Container:
 		unset_bitmap(&c, j)
 
 		// If we have returned to <= 4096 elements after unsetting a value, then convert
 		// the dense bitmap back into the packed array (eg. sparse) representation.
 		if c.cardinality == 4096 {
-			sc := convert_container_from_dense_to_sparse(c)
-			rb[i] = sc
+			sc := convert_container_from_dense_to_sparse(c, rb.allocator)
+			rb.index[i] = sc
 		} else {
-			rb[i] = c
+			rb.index[i] = c
 		}
 	}
 
 	// If we have removed the last element in a container, remove that key entirely.
-	container = rb[i]
+	container = rb.index[i]
 	switch c in container {
 	case Sparse_Container:
 		if c.cardinality == 0 {
-			delete_key(rb, i)
+			delete_key(&rb.index, i)
 		}
 	// NOTE: This case should never occur in regular usage because we convert dense
 	// containers to sparse containers when they fall down to <4096 elements.
 	case Dense_Container:
 		if c.cardinality == 0 {
-			delete_key(rb, i)
+			delete_key(&rb.index, i)
 		}
 	}
 }
@@ -154,11 +163,11 @@ roaring_unset :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 //   Array: use binary search to find N % 2^16 in the sorted array.
 roaring_is_set :: proc(rb: Roaring_Bitmap, n: u32be) -> (found: bool) {
 	i := most_significant(n)
-	if !(i in rb) {
+	if !(i in rb.index) {
 		return false
 	}
 
-	container := rb[i]
+	container := rb.index[i]
 	j := least_significant(n)
 	switch c in container {
 	case Sparse_Container:
@@ -259,8 +268,11 @@ convert_container_from_sparse_to_dense :: proc(sc: Sparse_Container) -> Dense_Co
 }
 
 // TODO: Make sure to de-allocate the Sparse_Container here.
-convert_container_from_dense_to_sparse :: proc(dc: Dense_Container) -> Sparse_Container {
-	sc := sparse_container_init()
+convert_container_from_dense_to_sparse :: proc(
+	dc: Dense_Container,
+	allocator := context.allocator,
+) -> Sparse_Container {
+	sc := sparse_container_init(allocator)
 
 	for byte, i in dc.bitmap {
 		for j in 0..<8 {
@@ -275,12 +287,15 @@ convert_container_from_dense_to_sparse :: proc(dc: Dense_Container) -> Sparse_Co
 	return sc
 }
 
-clone_container :: proc(container: Container) -> Container {
+clone_container :: proc(
+	container: Container,
+	allocator := context.allocator
+) -> Container {
 	cloned: Container
 
 	switch c in container {
 	case Sparse_Container:
-		new_packed_array := slice.clone_to_dynamic(c.packed_array[:])
+		new_packed_array := slice.clone_to_dynamic(c.packed_array[:], allocator)
 		cloned = Sparse_Container{
 			packed_array=new_packed_array,
 			cardinality=c.cardinality,
@@ -295,27 +310,31 @@ clone_container :: proc(container: Container) -> Container {
 }
 
 // Performs an intersection of two Roaring_Bitmap structures.
-roaring_intersection :: proc(rb1: Roaring_Bitmap, rb2: Roaring_Bitmap) -> Roaring_Bitmap {
-	rb := make(Roaring_Bitmap)
+roaring_intersection :: proc(
+	rb1: Roaring_Bitmap,
+	rb2: Roaring_Bitmap,
+	allocator := context.allocator,
+) -> Roaring_Bitmap {
+	rb := roaring_init(allocator)
 
-	for k1, v1 in rb1 {
-		if k1 in rb2 {
-			v2 := rb2[k1]
+	for k1, v1 in rb1.index {
+		if k1 in rb2.index {
+			v2 := rb2.index[k1]
 
 			switch c1 in v1 {
 			case Sparse_Container:
 				switch c2 in v2 {
 				case Sparse_Container:
-					rb[k1] = intersection_array_with_array(c1, c2)
+					rb.index[k1] = intersection_array_with_array(c1, c2, allocator)
 				case Dense_Container:
-					rb[k1] = intersection_array_with_bitmap(c1, c2)
+					rb.index[k1] = intersection_array_with_bitmap(c1, c2, allocator)
 				}
 			case Dense_Container:
 				switch c2 in v2 {
 				case Sparse_Container:
-					rb[k1] = intersection_array_with_bitmap(c2, c1)
+					rb.index[k1] = intersection_array_with_bitmap(c2, c1, allocator)
 				case Dense_Container:
-					rb[k1] = intersection_bitmap_with_bitmap(c1, c2)
+					rb.index[k1] = intersection_bitmap_with_bitmap(c1, c2, allocator)
 				}
 			}
 		}
@@ -325,33 +344,37 @@ roaring_intersection :: proc(rb1: Roaring_Bitmap, rb2: Roaring_Bitmap) -> Roarin
 }
 
 // Performs a union of two Roaring_Bitmap structures.
-roaring_union :: proc(rb1: Roaring_Bitmap, rb2: Roaring_Bitmap) -> Roaring_Bitmap {
-	rb := make(Roaring_Bitmap)
+roaring_union :: proc(
+	rb1: Roaring_Bitmap,
+	rb2: Roaring_Bitmap,
+	allocator := context.allocator,
+) -> Roaring_Bitmap {
+	rb := roaring_init(allocator)
 
-	for k1, v1 in rb1 {
+	for k1, v1 in rb1.index {
 		// If the container in the first Roaring_Bitmap does not exist in the second,
 		// then just copy that container to the new, unioned bitmap.
-		if !(k1 in rb2) {
-			rb[k1] = clone_container(v1)
+		if !(k1 in rb2.index) {
+			rb.index[k1] = clone_container(v1, allocator)
 		}
 
-		if k1 in rb2 {
-			v2 := rb2[k1]
+		if k1 in rb2.index {
+			v2 := rb2.index[k1]
 
 			switch c1 in v1 {
 			case Sparse_Container:
 				switch c2 in v2 {
 				case Sparse_Container:
-					rb[k1] = union_array_with_array(c1, c2)
+					rb.index[k1] = union_array_with_array(c1, c2, allocator)
 				case Dense_Container:
-					rb[k1] = union_array_with_bitmap(c1, c2)
+					rb.index[k1] = union_array_with_bitmap(c1, c2)
 				}
 			case Dense_Container:
 				switch c2 in v2 {
 				case Sparse_Container:
-					rb[k1] = union_array_with_bitmap(c2, c1)
+					rb.index[k1] = union_array_with_bitmap(c2, c1)
 				case Dense_Container:
-					rb[k1] = union_bitmap_with_bitmap(c1, c2)
+					rb.index[k1] = union_bitmap_with_bitmap(c1, c2)
 				}
 			}
 		}
@@ -359,9 +382,9 @@ roaring_union :: proc(rb1: Roaring_Bitmap, rb2: Roaring_Bitmap) -> Roaring_Bitma
 
 	// Lastly, add any containers in the second Roaring_Bitmap that were
 	// not present in the first.
-	for k2, v2 in rb2 {
-		if !(k2 in rb1) {
-			rb[k2] = clone_container(v2)
+	for k2, v2 in rb2.index {
+		if !(k2 in rb1.index) {
+			rb.index[k2] = clone_container(v2, allocator)
 		}
 	}
 
@@ -376,14 +399,18 @@ roaring_union :: proc(rb1: Roaring_Bitmap, rb2: Roaring_Bitmap) -> Roaring_Bitma
 // galloping intersection with complexity O(min(c1, c2) log max(c1, c2)). We
 // arrived at this threshold (c1/64 < c2 < 64c1) empirically as a reasonable
 // choice, but it has not been finely tuned.
-intersection_array_with_array :: proc(sc1: Sparse_Container, sc2: Sparse_Container) -> Sparse_Container {
+intersection_array_with_array :: proc(
+	sc1: Sparse_Container,
+	sc2: Sparse_Container,
+	allocator := context.allocator,
+) -> Sparse_Container {
 	new_cardinality: int
 	if sc1.cardinality < sc2.cardinality {
 		new_cardinality = sc1.cardinality
 	} else {
 		new_cardinality = sc2.cardinality
 	}
-	sc := sparse_container_init()
+	sc := sparse_container_init(allocator)
 
 	// FIXME: Actually do both of these.
 
@@ -420,9 +447,13 @@ intersection_array_with_array :: proc(sc1: Sparse_Container, sc2: Sparse_Contain
 // values of both arrays, we set the corresponding bits in the bitmap to 1. Using
 // the bitCount function, we compute cardinality, and then convert the bitmap into
 // an array container if the cardinality is at most 4096.
-union_array_with_array :: proc(sc1: Sparse_Container, sc2: Sparse_Container) -> Container {
+union_array_with_array :: proc(
+	sc1: Sparse_Container,
+	sc2: Sparse_Container,
+	allocator := context.allocator,
+) -> Container {
 	if (sc1.cardinality + sc2.cardinality) <= 4096 {
-		sc := sparse_container_init()
+		sc := sparse_container_init(allocator)
 		for v in sc1.packed_array {
 			set_packed_array(&sc, v)
 		}
@@ -451,8 +482,12 @@ union_array_with_array :: proc(sc1: Sparse_Container, sc2: Sparse_Container) -> 
 // quickly: we iterate over the values in the array container, checking the
 // presence of each 16-bit integer in the bitmap container and generating a new
 // array container that has as much capacity as the input array container.
-intersection_array_with_bitmap :: proc(sc: Sparse_Container, dc: Dense_Container) -> Sparse_Container {
-	new_sc := sparse_container_init()
+intersection_array_with_bitmap :: proc(
+	sc: Sparse_Container,
+	dc: Dense_Container,
+	allocator := context.allocator,
+) -> Sparse_Container {
+	new_sc := sparse_container_init(allocator)
 	for v in sc.packed_array {
 		if is_set_bitmap(dc, v) {
 			set_packed_array(&new_sc, v)
@@ -463,7 +498,12 @@ intersection_array_with_bitmap :: proc(sc: Sparse_Container, dc: Dense_Container
 
 // Unions are also efficient: we create a copy of the bitmap and iterate over the
 // array, setting the corresponding bits.
-union_array_with_bitmap :: proc(sc: Sparse_Container, dc: Dense_Container) -> Dense_Container {
+union_array_with_bitmap :: proc(
+	sc: Sparse_Container,
+	dc: Dense_Container,
+) -> Dense_Container {
+	// Cloning a Dense_Container does not require any allocations right now.
+	// TODO: Should it??
 	new_container := clone_container(dc)
 	new_dc := new_container.(Dense_Container)
 
@@ -483,7 +523,11 @@ union_array_with_bitmap :: proc(sc: Sparse_Container, dc: Dense_Container) -> De
 // the words and storing them in a new bitmap container. Otherwise, we generate a
 // new array container by, once again, recomputing the bitwise ANDs, and iterating
 // over their 1-bits.
-intersection_bitmap_with_bitmap :: proc(dc1: Dense_Container, dc2: Dense_Container) -> Container {
+intersection_bitmap_with_bitmap :: proc(
+	dc1: Dense_Container,
+	dc2: Dense_Container,
+	allocator := context.allocator,
+) -> Container {
 	count := 0
 	for byte1, i in dc1.bitmap {
 		byte2 := dc2.bitmap[i]
@@ -492,6 +536,8 @@ intersection_bitmap_with_bitmap :: proc(dc1: Dense_Container, dc2: Dense_Contain
 	}
 
 	if count > 4096 {
+		// Cloning a Dense_Container does not require any allocations right now.
+		// TODO: Should it??
 		dc := dense_container_init()
 		for byte1, i in dc1.bitmap {
 			byte2 := dc2.bitmap[i]
@@ -501,7 +547,7 @@ intersection_bitmap_with_bitmap :: proc(dc1: Dense_Container, dc2: Dense_Contain
 		}
 		return dc
 	} else {
-		sc := sparse_container_init()
+		sc := sparse_container_init(allocator)
 		for byte1, i in dc1.bitmap {
 			byte2 := dc2.bitmap[i]
 			res := byte1 & byte2
@@ -536,7 +582,12 @@ bit_count :: proc(n: int) -> (c: int) {
 // each container, so 1024 bitwise OR operations are needed. At the same time, we
 // compute the cardinality of the result using the bitCount function on the
 // generated words.
-union_bitmap_with_bitmap :: proc(dc1: Dense_Container, dc2: Dense_Container) -> Dense_Container {
+union_bitmap_with_bitmap :: proc(
+	dc1: Dense_Container,
+	dc2: Dense_Container
+) -> Dense_Container {
+	// Cloning a Dense_Container does not require any allocations right now.
+	// TODO: Should it??
 	dc := dense_container_init()
 	for byte, i in dc1.bitmap {
 		res := byte | dc2.bitmap[i]
@@ -552,12 +603,12 @@ main :: proc() {
 	fmt.println(x)
 	fmt.printf("{:32b}\n", x)
 
-	rb1 := make(Roaring_Bitmap)
+	rb1 := roaring_init()
 	for i in 0..=4097 {
 		roaring_set(&rb1, u32be(i))
 	}
 
-	rb2 := make(Roaring_Bitmap)
+	rb2 := roaring_init()
 	for i in 4090..=10000 {
 		roaring_set(&rb2, u32be(i))
 	}
