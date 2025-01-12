@@ -14,8 +14,7 @@ Sparse_Container :: struct {
 }
 
 Dense_Container :: struct {
-	// 2^16 / 8
-	bitmap: [8192]u8,
+	bitmap: [dynamic]u8,
 	cardinality: int,
 }
 
@@ -31,6 +30,20 @@ Roaring_Bitmap :: struct {
 	allocator: mem.Allocator,
 }
 
+// Counts the number of set bits in an integer.
+// FIXME: Can be optimized:
+// http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
+// Maybe just use a 256 element lookup table for a u8 that gives exactly
+// the number of bits set for every possible byte.
+bit_count :: proc(n: int) -> (c: int) {
+	n := n
+	for n != 0 {
+		c += n & 1
+		n >>= 1
+	}
+	return c
+}
+
 roaring_init :: proc(allocator := context.allocator) -> Roaring_Bitmap {
 	index := make(Container_Index)
 	return Roaring_Bitmap{index=index, allocator=allocator}
@@ -42,6 +55,7 @@ roaring_free :: proc(rb: Roaring_Bitmap) {
 		case Sparse_Container:
 			sparse_container_free(c)
 		case Dense_Container:
+			dense_container_free(c)
 		}
 	}
 	delete(rb.index)
@@ -60,13 +74,18 @@ sparse_container_free :: proc(sc: Sparse_Container) {
 	delete(sc.packed_array)
 }
 
-dense_container_init :: proc() -> Dense_Container {
-	arr: [8192]u8
+dense_container_init :: proc(allocator := context.allocator) -> Dense_Container {
+	// 2^16 / 8
+	arr := make([dynamic]u8, 8192)
 	dc := Dense_Container{
 		bitmap=arr,
 		cardinality=0,
 	}
 	return dc
+}
+
+dense_container_free :: proc(dc: Dense_Container) {
+	delete(dc.bitmap)
 }
 
 // TODO: Add an error to be returned here if the value cannot be
@@ -255,9 +274,11 @@ is_set_bitmap :: proc(dc: Dense_Container, n: u16be) -> (found: bool) {
 	return found
 }
 
-// TODO: Make sure to deallocate the Sparse_Container here.
-convert_container_from_sparse_to_dense :: proc(sc: Sparse_Container) -> Dense_Container {
-	dc := dense_container_init()
+convert_container_from_sparse_to_dense :: proc(
+	sc: Sparse_Container,
+	allocator := context.allocator,
+) -> Dense_Container {
+	dc := dense_container_init(allocator)
 
 	for i in sc.packed_array {
 		set_bitmap(&dc, i)
@@ -267,7 +288,6 @@ convert_container_from_sparse_to_dense :: proc(sc: Sparse_Container) -> Dense_Co
 	return dc
 }
 
-// TODO: Make sure to de-allocate the Sparse_Container here.
 convert_container_from_dense_to_sparse :: proc(
 	dc: Dense_Container,
 	allocator := context.allocator,
@@ -284,12 +304,13 @@ convert_container_from_dense_to_sparse :: proc(
 		}
 	}
 
+	dense_container_free(dc)
 	return sc
 }
 
 clone_container :: proc(
 	container: Container,
-	allocator := context.allocator
+	allocator := context.allocator,
 ) -> Container {
 	cloned: Container
 
@@ -301,9 +322,11 @@ clone_container :: proc(
 			cardinality=c.cardinality,
 		}
 	case Dense_Container:
-		dc := dense_container_init()
-		dc.bitmap = c.bitmap
-		cloned = dc
+		new_bitmap := slice.clone_to_dynamic(c.bitmap[:], allocator)
+		cloned = Dense_Container{
+			bitmap=new_bitmap,
+			cardinality=c.cardinality,
+		}
 	}
 
 	return cloned
@@ -367,14 +390,14 @@ roaring_union :: proc(
 				case Sparse_Container:
 					rb.index[k1] = union_array_with_array(c1, c2, allocator)
 				case Dense_Container:
-					rb.index[k1] = union_array_with_bitmap(c1, c2)
+					rb.index[k1] = union_array_with_bitmap(c1, c2, allocator)
 				}
 			case Dense_Container:
 				switch c2 in v2 {
 				case Sparse_Container:
-					rb.index[k1] = union_array_with_bitmap(c2, c1)
+					rb.index[k1] = union_array_with_bitmap(c2, c1, allocator)
 				case Dense_Container:
-					rb.index[k1] = union_bitmap_with_bitmap(c1, c2)
+					rb.index[k1] = union_bitmap_with_bitmap(c1, c2, allocator)
 				}
 			}
 		}
@@ -465,7 +488,7 @@ union_array_with_array :: proc(
 		}
 		return sc
 	} else {
-		dc := dense_container_init()
+		dc := dense_container_init(allocator)
 		for v in sc1.packed_array {
 			set_bitmap(&dc, v)
 		}
@@ -501,10 +524,9 @@ intersection_array_with_bitmap :: proc(
 union_array_with_bitmap :: proc(
 	sc: Sparse_Container,
 	dc: Dense_Container,
+	allocator := context.allocator,
 ) -> Dense_Container {
-	// Cloning a Dense_Container does not require any allocations right now.
-	// TODO: Should it??
-	new_container := clone_container(dc)
+	new_container := clone_container(dc, allocator)
 	new_dc := new_container.(Dense_Container)
 
 	for v in sc.packed_array {
@@ -536,9 +558,7 @@ intersection_bitmap_with_bitmap :: proc(
 	}
 
 	if count > 4096 {
-		// Cloning a Dense_Container does not require any allocations right now.
-		// TODO: Should it??
-		dc := dense_container_init()
+		dc := dense_container_init(allocator)
 		for byte1, i in dc1.bitmap {
 			byte2 := dc2.bitmap[i]
 			res := byte1 & byte2
@@ -563,20 +583,6 @@ intersection_bitmap_with_bitmap :: proc(
 	}
 }
 
-// Counts the number of set bits in an integer.
-// FIXME: Can be optimized: http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
-//
-// Maybe just use a 256 element lookup table for a u8 that gives exactly the number of bits set
-// for every possible byte.
-bit_count :: proc(n: int) -> (c: int) {
-	n := n
-	for n != 0 {
-		c += n & 1
-		n >>= 1
-	}
-	return c
-}
-
 // A union between two bitmap containers is straightforward: we execute the
 // bitwise OR between all pairs of corresponding words. There are 1024 words in
 // each container, so 1024 bitwise OR operations are needed. At the same time, we
@@ -584,11 +590,10 @@ bit_count :: proc(n: int) -> (c: int) {
 // generated words.
 union_bitmap_with_bitmap :: proc(
 	dc1: Dense_Container,
-	dc2: Dense_Container
+	dc2: Dense_Container,
+	allocator := context.allocator,
 ) -> Dense_Container {
-	// Cloning a Dense_Container does not require any allocations right now.
-	// TODO: Should it??
-	dc := dense_container_init()
+	dc := dense_container_init(allocator)
 	for byte, i in dc1.bitmap {
 		res := byte | dc2.bitmap[i]
 		dc.bitmap[i] = res
