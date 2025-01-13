@@ -113,6 +113,69 @@ test_setting_values_for_run_container :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_converting_from_dense_to_run_container :: proc(t: ^testing.T) {
+	rb := roaring_init()
+	defer roaring_free(&rb)
+
+	// Confirm all 5000 bits are set in the Dense_Container.
+	for i in 0..<5000 {
+		roaring_set(&rb, u32be(i))
+	}
+	testing.expect_value(t, roaring_is_set(rb, 0), true)
+	testing.expect_value(t, roaring_is_set(rb, 4999), true)
+	container := rb.index[0]
+	dc, dc_ok := container.(Dense_Container)
+	testing.expect_value(t, dc_ok, true)
+	testing.expect_value(t, dc.cardinality, 5000)
+	testing.expect_value(t, should_convert_to_run_container(dc), true)
+
+	run_optimize(rb)
+	container = rb.index[0]
+	rc, rc_ok := container.(Run_Container)
+	testing.expect_value(t, rc_ok, true)
+	testing.expect_value(t, run_container_cardinality(rc), 5000)
+
+	exp_run := Run{start=0, length=5000}
+	testing.expect_value(t, rc.run_list[0], exp_run)
+}
+
+@(test)
+test_converting_from_run_to_dense_container :: proc(t: ^testing.T) {
+	rb := roaring_init()
+	defer roaring_free(&rb)
+
+	// Confirm all 5000 bits are set in the Dense_Container.
+	for i in 0..<5000 {
+		roaring_set(&rb, u32be(i))
+	}
+	for i in 5000..<9096 {
+		if i % 2 == 0 {
+			roaring_set(&rb, u32be(i))
+		}
+	}
+	container := rb.index[0]
+	dc, dc_ok := container.(Dense_Container)
+	testing.expect_value(t, dc_ok, true)
+	testing.expect_value(t, dc.cardinality, 7048)
+	testing.expect_value(t, count_runs(dc), 2048)
+	testing.expect_value(t, should_convert_to_run_container(dc), true)
+
+	run_optimize(rb)
+
+	container = rb.index[0]
+	rc, rc_ok := container.(Run_Container)
+	testing.expect_value(t, rc_ok, true)
+	testing.expect_value(t, run_container_cardinality(rc), 7048)
+
+	roaring_unset(&rb, 9094)
+	container = rb.index[0]
+	dc, dc_ok = container.(Dense_Container)
+	testing.expect_value(t, dc_ok, true)
+	testing.expect_value(t, dc.cardinality, 7047)
+	testing.expect_value(t, count_runs(dc), 2047)
+}
+
+@(test)
 test_multiple_sparse_containers :: proc(t: ^testing.T) {
 	rb := roaring_init()
 	defer roaring_free(&rb)
@@ -339,19 +402,27 @@ test_should_convert_to_run_container :: proc(t: ^testing.T) {
 	rb := roaring_init()
 	defer roaring_free(&rb)
 
-	roaring_set(&rb, 0)
-	should := should_convert_to_run_container(rb.index[0])
-	testing.expect_value(t, should, false)
+	for i in 0..<5000 {
+		roaring_set(&rb, u32be(i))
+	}
 
-	for i in 1..<10000 {
+	should := should_convert_to_run_container(rb.index[0])
+	testing.expect_value(t, should, true)
+}
+
+@(test)
+test_should_not_convert_to_run_container :: proc(t: ^testing.T) {
+	rb := roaring_init()
+	defer roaring_free(&rb)
+
+	for i in 0..<5000 {
 		if i % 2 == 0 {
 			roaring_set(&rb, u32be(i))
 		}
 	}
 
-	// Should have 5000 runs, each of length 1.
-	should = should_convert_to_run_container(rb.index[0])
-	testing.expect_value(t, should, true)
+	should := should_convert_to_run_container(rb.index[0])
+	testing.expect_value(t, should, false)
 }
 
 @(test)
