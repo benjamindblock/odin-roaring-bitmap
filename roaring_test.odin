@@ -97,6 +97,22 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_setting_values_for_run_container :: proc(t: ^testing.T) {
+	rc := run_container_init()
+	defer run_container_free(rc)
+
+	set_run_list(&rc, 0)
+	testing.expect_value(t, len(rc.run_list), 1)
+	testing.expect_value(t, is_set_run_list(rc, 0), true)
+	testing.expect_value(t, is_set_run_list(rc, 1), false)
+
+	set_run_list(&rc, 1)
+	testing.expect_value(t, len(rc.run_list), 1)
+	testing.expect_value(t, is_set_run_list(rc, 0), true)
+	testing.expect_value(t, is_set_run_list(rc, 1), true)
+}
+
+@(test)
 test_multiple_sparse_containers :: proc(t: ^testing.T) {
 	rb := roaring_init()
 	defer roaring_free(&rb)

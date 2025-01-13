@@ -25,19 +25,39 @@ Not_Set_Error :: struct {
 	value: u16be,
 }
 
+// "An array container is an object containing a counter keeping track of the
+// number of integers, followed by a packed array of sorted 16-bit unsigned
+// integers. It can be serialized as an array of 16-bit values."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 5)
 Sparse_Container :: struct {
 	packed_array: [dynamic]u16be,
 	cardinality: int,
 }
 
+// NOTE: I use a 8192 8-bit words instead of 1024 64-bit words.
+// "A bitmap container is an object made of 1024 64-bit words (using 8 kB)
+// representing an uncompressed bitmap, able to store all sets of 16-bit integers.
+// The container can be serialized as an array of 64-bit words. We also maintain a
+// counter to record how many bits are set to 1."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 5)
 Dense_Container :: struct {
 	bitmap: [dynamic]u8,
 	cardinality: int,
 }
 
+// "Unlike an array or bitmap container, a run container does not keep track of its
+// cardinality; its cardinality can be computed on the fly by summing the lengths
+// of the runs. In most applications, we expect the number of runs to be often
+// small: the computation of the cardinality should not be a bottleneck."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
+Run_Container :: struct {
+	run_list: Run_List,
+}
+
 Container :: union {
 	Sparse_Container,
 	Dense_Container,
+	Run_Container,
 }
 
 Container_Index :: distinct map[u16be]Container
@@ -80,12 +100,14 @@ roaring_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 		sparse_container_free(c)
 	case Dense_Container:
 		dense_container_free(c)
+	case Run_Container:
+		run_container_free(c)
 	}
 	delete_key(&rb.index, i)
 }
 
 sparse_container_init :: proc(allocator := context.allocator) -> Sparse_Container {
-	arr := make([dynamic]u16be)
+	arr := make([dynamic]u16be, allocator)
 	sc := Sparse_Container{
 		packed_array=arr,
 		cardinality=0,
@@ -98,8 +120,7 @@ sparse_container_free :: proc(sc: Sparse_Container) {
 }
 
 dense_container_init :: proc(allocator := context.allocator) -> Dense_Container {
-	// 2^16 / 8
-	arr := make([dynamic]u8, 8192)
+	arr := make([dynamic]u8, 8192, allocator)
 	dc := Dense_Container{
 		bitmap=arr,
 		cardinality=0,
@@ -109,6 +130,16 @@ dense_container_init :: proc(allocator := context.allocator) -> Dense_Container 
 
 dense_container_free :: proc(dc: Dense_Container) {
 	delete(dc.bitmap)
+}
+
+run_container_init :: proc(allocator := context.allocator) -> Run_Container {
+	run_list := make(Run_List, allocator)
+	rc := Run_Container{run_list}
+	return rc
+}
+
+run_container_free :: proc(rc: Run_Container) {
+	delete(rc.run_list)
 }
 
 // If a container doesn’t already exist then create a new array container,
@@ -146,6 +177,9 @@ roaring_set :: proc(
 	case Dense_Container:
 		set_bitmap(&c, j) or_return
 		rb.index[i] = c
+	case Run_Container:
+		set_run_list(&c, j) or_return
+		rb.index[i] = c
 	}
 
 	return true, nil
@@ -165,7 +199,7 @@ roaring_unset :: proc(
 	}
 
 	container := rb.index[i]
-	switch &c in container {
+	#partial switch &c in container {
 	case Sparse_Container:
 		unset_packed_array(&c, j) or_return
 		rb.index[i] = c
@@ -184,7 +218,7 @@ roaring_unset :: proc(
 
 	// If we have removed the last element in a container, remove that key entirely.
 	container = rb.index[i]
-	switch c in container {
+	#partial switch c in container {
 	case Sparse_Container:
 		if c.cardinality == 0 {
 			roaring_free_at(rb, i)
@@ -220,6 +254,8 @@ roaring_is_set :: proc(rb: Roaring_Bitmap, n: u32be) -> (found: bool) {
 		found = is_set_packed_array(c, j)
 	case Dense_Container:
 		found = is_set_bitmap(c, j)
+	case Run_Container:
+		found = is_set_run_list(c, j)
 	}
 
 	return found
@@ -336,6 +372,153 @@ is_set_bitmap :: proc(dc: Dense_Container, n: u16be) -> (found: bool) {
 	return found
 }
 
+// Sets a value in a Run_List.
+set_run_list :: proc(
+	rc: ^Run_Container,
+	n: u16be,
+) -> (ok: bool, err: Roaring_Error) {
+	if is_set_run_list(rc^, n) {
+		return false, Already_Set_Error{n}
+	}
+
+	n := int(n)
+
+	if len(rc.run_list) == 0 {
+		new_run := Run{start=n, length=1}
+		append(&rc.run_list, new_run)
+		return true, nil
+	}
+
+	run_to_check, index, _ := find_possible_run_by_value(rc.run_list, int(n))
+
+	// Lengthen a Run by having it start earlier.
+	if run_to_check.start - 1 == n {
+		run_to_check.start -= 1
+		run_to_check.length += 1
+		rc.run_list[index] = run_to_check
+
+	// Lengthen a Run by having it end later.
+	} else if run_end(run_to_check) == n {
+		run_to_check.length += 1
+
+		// Merge with the next run if we need to.
+		if index + 1 < len(rc.run_list) {
+			next_run := rc.run_list[index+1]
+			if run_end(run_to_check) == next_run.start {
+				run_to_check.length += next_run.length
+			}
+			ordered_remove(&rc.run_list, index + 1)
+		}
+
+		rc.run_list[index] = run_to_check
+
+	// Create a new Run entirely.
+	} else {
+		new_run := Run{start=n, length=1}
+		inject_at(&rc.run_list, index + 1, new_run)
+	}
+
+	return true, nil
+}
+
+// Finds the Run that might contain a given value.
+find_possible_run_by_value :: proc(rl: Run_List, n: int) -> (run: Run, index: int, exact_match: bool) {
+	if len(rl) == 0 {
+		return run, -1, false
+	}
+
+	cmp := proc(r: Run, n: int) -> slice.Ordering {
+		if r.start < n {
+			return .Less
+		} else if r.start > n {
+			return .Greater
+		} else {
+			return .Equal
+		}
+	}
+
+	i, found := slice.binary_search_by(rl[:], n, cmp)
+
+	if found {
+		return rl[i], i, true
+	}
+
+	// Because the binary_search_by returns the insertion order if an element
+	// is not found, we want to subtract 1 to get the container that the run
+	// might actually be in.
+	if i > 0 {
+		i -= 1
+	}
+
+	return rl[i], i, false
+}
+
+// Cases:
+// 1. Standalone Run -- remove
+// 2. Value at beginning of run -- increment start by 1 and decrease length by 1
+// 3. Value at end of run -- decrease length by 1
+// 4. Value in middle of run -- split Run into two Runs
+unset_run_list :: proc(
+	rc: ^Run_Container,
+	n: u16be,
+) -> (ok: bool, err: Roaring_Error) {
+	if !is_set_run_list(rc^, n) {
+		return false, Not_Set_Error{n}
+	}
+
+	n := int(n)
+	run_to_check, index, exact_match := find_possible_run_by_value(rc.run_list, n)
+
+	// 1. Standalone Run -- remove
+	if exact_match && run_to_check.length == 1 {
+		ordered_remove(&rc.run_list, index)	
+
+	// 2. Value at beginning of run -- increment start by 1 and decrease length by 1
+	} else if exact_match {
+		run_to_check.start += 1
+		run_to_check.length -= 1
+		rc.run_list[index] = run_to_check
+
+	// 3. Value at end of run -- decrease length by 1
+	} else if run_end(run_to_check) - 1 == n {
+		run_to_check.length -= 1
+		rc.run_list[index] = run_to_check
+
+	// 4. Value in middle of run -- split Run into two Runs
+	} else {
+		new_rc := Run{
+			start = run_to_check.start,
+			length = (n - run_to_check.start),
+		}
+
+		run_to_check.start = n + 1
+		run_to_check.length = run_to_check.length - n
+		rc.run_list[index] = run_to_check
+
+		inject_at(&rc.run_list, index, new_rc)
+	}
+
+	return true, nil
+}
+
+// Checks to see if a value is set in a Run_Container.
+is_set_run_list :: proc(rc: Run_Container, n: u16be) -> bool {
+	if len(rc.run_list) == 0 {
+		return false
+	}
+
+	run_to_check, _, exact_match := find_possible_run_by_value(rc.run_list, int(n))
+
+	if exact_match {
+		return true
+	}
+
+	start := run_to_check.start
+	end := (start + run_to_check.length) - 1
+
+	return int(n) >= start && int(n) <= end
+}
+
 convert_container_from_sparse_to_dense :: proc(
 	sc: Sparse_Container,
 	allocator := context.allocator,
@@ -376,7 +559,7 @@ clone_container :: proc(
 ) -> Container {
 	cloned: Container
 
-	switch c in container {
+	#partial switch c in container {
 	case Sparse_Container:
 		new_packed_array := slice.clone_to_dynamic(c.packed_array[:], allocator)
 		cloned = Sparse_Container{
@@ -406,16 +589,16 @@ roaring_intersection :: proc(
 		if k1 in rb2.index {
 			v2 := rb2.index[k1]
 
-			switch c1 in v1 {
+			#partial switch c1 in v1 {
 			case Sparse_Container:
-				switch c2 in v2 {
+				#partial switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = intersection_array_with_array(c1, c2, allocator)
 				case Dense_Container:
 					rb.index[k1] = intersection_array_with_bitmap(c1, c2, allocator)
 				}
 			case Dense_Container:
-				switch c2 in v2 {
+				#partial switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = intersection_array_with_bitmap(c2, c1, allocator)
 				case Dense_Container:
@@ -446,16 +629,16 @@ roaring_union :: proc(
 		if k1 in rb2.index {
 			v2 := rb2.index[k1]
 
-			switch c1 in v1 {
+			#partial switch c1 in v1 {
 			case Sparse_Container:
-				switch c2 in v2 {
+				#partial switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = union_array_with_array(c1, c2, allocator)
 				case Dense_Container:
 					rb.index[k1] = union_array_with_bitmap(c1, c2, allocator)
 				}
 			case Dense_Container:
-				switch c2 in v2 {
+				#partial switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = union_array_with_bitmap(c2, c1, allocator)
 				case Dense_Container:
@@ -715,8 +898,8 @@ should_convert_to_run_container :: proc(container: Container) -> bool {
 		byte := c.bitmap[len(c.bitmap) - 1]
 		count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7))
 		return count >= 2048
-	// case Run_Container:
-	// 	return false
+	case Run_Container:
+		return false
 	}
 
 	return false
@@ -793,33 +976,109 @@ convert_bitmap_to_run_list :: proc(dc: Dense_Container, allocator := context.all
 	return run_list
 }
 
-// convert_container_from_dense_to_run :: proc(dc: Dense_Container) -> Run_Container {
+convert_container_from_dense_to_run :: proc(dc: Dense_Container, allocator := context.allocator) -> Run_Container {
+	rl := convert_bitmap_to_run_list(dc, allocator)
+	return Run_Container{rl}
+}
+
+
+run_end :: proc(run: Run) -> int {
+	return run.start + run.length
+}
+
+// "Thus, when first creating a Roaring bitmap, it is usually made of array and
+// bitmap containers. Runs are not compressed. Upon request, the storage of the
+// Roaring bitmap can be optimized using the runOptimize function. This triggers a
+// scan through the array and bitmap containers that converts them, if helpful, to
+// run containers. In a given application, this might be done prior to storing the
+// bitmaps as immutable objects to be queried. Run containers may also arise from
+// calling a function to add a range of values."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
+// run_optimize :: proc(rb: Roaring_Bitmap) {
 // }
 
 main :: proc() {
 	fmt.println("Hello, world!")
 
-	rb := roaring_init()
-	defer roaring_free(&rb)
+	// rb := roaring_init()
+	// defer roaring_free(&rb)
 
-	roaring_set(&rb, 1)
-	roaring_set(&rb, 2)
+	// roaring_set(&rb, 1)
+	// roaring_set(&rb, 2)
 
-	roaring_set(&rb, 4)
-	roaring_set(&rb, 5)
-	roaring_set(&rb, 6)
-	roaring_set(&rb, 7)
-	roaring_set(&rb, 8)
-	roaring_set(&rb, 9)
+	// roaring_set(&rb, 4)
+	// roaring_set(&rb, 5)
+	// roaring_set(&rb, 6)
+	// roaring_set(&rb, 7)
+	// roaring_set(&rb, 8)
+	// roaring_set(&rb, 9)
 
-	for i in 12..<10000 {
-		if i % 2 == 0 {
-			roaring_set(&rb, u32be(i))
-		}
-	}
+	// for i in 12..<10000 {
+	// 	if i % 2 == 0 {
+	// 		roaring_set(&rb, u32be(i))
+	// 	}
+	// }
 
-	run_list := convert_bitmap_to_run_list(rb.index[0].(Dense_Container))
-	fmt.println(run_list)
+	// rc := convert_container_from_dense_to_run(rb.index[0].(Dense_Container))
+	// fmt.println(rc)
+	// is_set_run_list(rc, 0)
+	// is_set_run_list(rc, 1)
+	// is_set_run_list(rc, 2)
+	// is_set_run_list(rc, 3)
+	// is_set_run_list(rc, 4)
+	// is_set_run_list(rc, 5)
+	// is_set_run_list(rc, 9)
+	// is_set_run_list(rc, 10)
+	// is_set_run_list(rc, 11)
+	// is_set_run_list(rc, 12)
+
+	rc := run_container_init()
+	fmt.println(rc.run_list)
+	set_run_list(&rc, 1)
+	fmt.println(rc.run_list)
+	set_run_list(&rc, 2)
+	fmt.println(rc.run_list)
+	// set_run_list(&rc, 3)
+	// fmt.println(rc.run_list)
+	set_run_list(&rc, 4)
+	fmt.println(rc.run_list)
+	set_run_list(&rc, 5)
+	fmt.println(rc.run_list)
+	set_run_list(&rc, 7)
+	fmt.println(rc.run_list)
+	set_run_list(&rc, 6)
+	fmt.println(rc.run_list)
+	set_run_list(&rc, 3)
+	fmt.println(rc.run_list)
+
+	unset_run_list(&rc, 3)
+	fmt.println(rc.run_list)
+	unset_run_list(&rc, 1)
+	fmt.println(rc.run_list)
+	unset_run_list(&rc, 2)
+	fmt.println(rc.run_list)
+	unset_run_list(&rc, 4)
+	fmt.println(rc.run_list)
+	unset_run_list(&rc, 7)
+	fmt.println(rc.run_list)
+
+	// set_run_list(&rc, 0)
+	// fmt.println(rc.run_list)
+
+	// fmt.println("UNSETTING")
+	// unset_run_list(&rc, 1)
+	// fmt.println(rc.run_list)
+	// unset_run_list(&rc, 0)
+	// fmt.println(rc.run_list)
+	// unset_run_list(&rc, 2)
+	// fmt.println(rc.run_list)
+
+	// set_run_list(&rc, 3)
+	// fmt.println(rc.run_list)
+	// set_run_list(&rc, 2)
+	// fmt.println(rc.run_list)
+	// set_run_list(&rc, 5)
+	// fmt.println(rc.run_list)
 
 	// fmt.println("RUNS", count_runs(rb.index[0].(Dense_Container)))
 	// fmt.println("RUNS", should_convert_to_run_container(rb.index[0].(Dense_Container)))
