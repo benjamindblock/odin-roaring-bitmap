@@ -300,3 +300,105 @@ test_errors_thrown :: proc(t: ^testing.T) {
 	_, ok = err.(Not_Set_Error)
 	testing.expect_value(t, ok, true)
 }
+
+@(test)
+test_count_runs :: proc(t: ^testing.T) {
+	rb := roaring_init()
+	defer roaring_free(&rb)
+
+	for i in 0..<10000 {
+		if i % 2 == 0 {
+			roaring_set(&rb, u32be(i))
+		}
+	}
+
+	// Should have 5000 runs, each of length 1.
+	dc := rb.index[0].(Dense_Container)
+	runs := count_runs(dc)
+	testing.expect_value(t, runs, 5000)
+}
+
+@(test)
+test_should_convert_to_run_container :: proc(t: ^testing.T) {
+	rb := roaring_init()
+	defer roaring_free(&rb)
+
+	roaring_set(&rb, 0)
+	should := should_convert_to_run_container(rb.index[0])
+	testing.expect_value(t, should, false)
+
+	for i in 1..<10000 {
+		if i % 2 == 0 {
+			roaring_set(&rb, u32be(i))
+		}
+	}
+
+	// Should have 5000 runs, each of length 1.
+	should = should_convert_to_run_container(rb.index[0])
+	testing.expect_value(t, should, true)
+}
+
+@(test)
+test_least_significant_bit_i :: proc(t: ^testing.T) {
+	n: u8 = 0b1101000
+	testing.expect_value(t, 3, least_significant_bit_i(n))
+
+	n = 0b00000000
+	testing.expect_value(t, -1, least_significant_bit_i(n))
+
+	n = 0b11111111
+	testing.expect_value(t, 0, least_significant_bit_i(n))
+
+	n = 0b10000000
+	testing.expect_value(t, 7, least_significant_bit_i(n))
+}
+
+@(test)
+test_least_significant_zero_bit_i :: proc(t: ^testing.T) {
+	n: u8 = 0b10110111
+	testing.expect_value(t, 3, least_significant_zero_bit_i(n))
+
+	n = 0b10111111
+	testing.expect_value(t, 6, least_significant_zero_bit_i(n))
+
+	n = 0b00000000
+	testing.expect_value(t, 0, least_significant_zero_bit_i(n))
+
+	n = 0b11111111
+	testing.expect_value(t, -1, least_significant_zero_bit_i(n))
+}
+
+@(test)
+test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
+	rb := roaring_init()
+	defer roaring_free(&rb)
+
+	roaring_set(&rb, 1)
+	roaring_set(&rb, 2)
+
+	roaring_set(&rb, 4)
+	roaring_set(&rb, 5)
+	roaring_set(&rb, 6)
+	roaring_set(&rb, 7)
+	roaring_set(&rb, 8)
+	roaring_set(&rb, 9)
+
+	for i in 12..<10000 {
+		if i % 2 == 0 {
+			roaring_set(&rb, u32be(i))
+		}
+	}
+
+	run_list := convert_bitmap_to_run_list(rb.index[0].(Dense_Container))
+	defer delete(run_list)
+	exp_run: Run
+
+	exp_run = Run{start=1, length=2}
+	testing.expect_value(t, run_list[0], exp_run)
+
+	exp_run = Run{start=4, length=6}
+	testing.expect_value(t, run_list[1], exp_run)
+
+	exp_run = Run{start=12, length=1}
+	testing.expect_value(t, run_list[2], exp_run)
+}

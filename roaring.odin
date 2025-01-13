@@ -1,8 +1,16 @@
 package roaring
 
 import "core:fmt"
+import "core:math"
 import "core:mem"
 import "core:slice"
+
+Run :: struct {
+	start: int,
+	length: int,
+}
+
+Run_List :: distinct [dynamic]Run
 
 Roaring_Error :: union {
 	Already_Set_Error,
@@ -665,23 +673,168 @@ union_bitmap_with_bitmap :: proc(
 	return dc
 }
 
+// Counts the no. of runs in a bitmap (eg., Dense_Container).
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 7, Algorithm 1)
+count_runs :: proc(dc: Dense_Container) -> (count: int) {
+	for i in 0..<(len(dc.bitmap) - 1) {
+		byte := dc.bitmap[i]
+		count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ dc.bitmap[i + 1])
+	}
+	// byte := dc.bitmap[len(dc.bitmap) - 1]
+	// count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7))
+	return count
+}
+
+// Checks if a Dense_Container should be converted to a Run_Container. This is true
+// when the number of runs in a Dense_Container is >= 2048. Because it can be
+// expensive to count all the runs, we break out after this lower bound is met.
+//
+// "... the computation may be expensive—exceeding the cost of computing
+// the union or intersection between two bitmap containers. Thus, instead of
+// always computing the number of runs exactly, we rely on the observation that no
+// bitmap container with more than 2047 runs should be converted. As soon as we
+// can produce a lower bound exceeding 2047 on the number of runs, we can stop. An
+// exact computation of the number of runs is important only when our lower bound
+// is less than 2048."
+//
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 7)
+should_convert_to_run_container :: proc(container: Container) -> bool {
+	switch c in container {
+	case Sparse_Container:
+		return false
+	case Dense_Container:
+		count: int
+		for i in 0..<(len(c.bitmap) - 1) {
+			byte := c.bitmap[i]
+			count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ c.bitmap[i + 1])
+
+			if count >= 2048 {
+				return true
+			}
+		}
+		byte := c.bitmap[len(c.bitmap) - 1]
+		count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7))
+		return count >= 2048
+	// case Run_Container:
+	// 	return false
+	}
+
+	return false
+}
+
+least_significant_bit_i :: proc(byte: u8) -> int {
+	if byte == 0 {
+		return -1
+	}
+
+	isolated_byte := cast(f64be)(byte & -byte)
+	i := math.log2(isolated_byte)
+	return cast(int)i
+}
+
+// Ref: http://skalkoto.blogspot.com/2008/01/bit-operations-find-first-zero-bit.html
+// 1. Invert the number
+// 2. Compute the two's complement of the inverted number
+// 3. AND the results of (1) and (2)
+// 4. Find the position by computing the binary logarithm of (3)
+least_significant_zero_bit_i :: proc(byte: u8) -> int {
+	if byte == 0b11111111 {
+		return -1
+	}
+
+	inverted := ~byte
+	twos := byte + 1
+	anded := cast(f64be)(inverted & twos)
+	i := math.log2(anded)
+	return cast(int)i
+}
+
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 8)
+convert_bitmap_to_run_list :: proc(dc: Dense_Container, allocator := context.allocator) -> Run_List {
+	run_list := make(Run_List, allocator)
+
+	i := 1
+	byte := dc.bitmap[i-1]
+	for i <= len(dc.bitmap) {
+		if byte == 0b00000000 {
+			i += 1
+
+			if i > len(dc.bitmap) {
+				break
+			}
+
+			byte = dc.bitmap[i-1]
+			continue
+		}
+
+		j := least_significant_bit_i(byte)
+		x := j + 8 * (i - 1)
+		byte = byte | (byte - 1)
+
+		for i + 1 <= len(dc.bitmap) && byte == 0b11111111 {
+			i += 1
+			byte = dc.bitmap[i-1]
+		}
+
+		y: int
+		if byte == 0b11111111 {
+			y = 8 * i
+		} else {
+			k := least_significant_zero_bit_i(byte)
+			y = k + 8 * (i - 1)
+		}
+
+		run := Run{start=x, length=(y - x)}
+		append(&run_list, run)
+
+		byte = byte & (byte + 1)
+	}
+
+	return run_list
+}
+
+// convert_container_from_dense_to_run :: proc(dc: Dense_Container) -> Run_Container {
+// }
+
 main :: proc() {
 	fmt.println("Hello, world!")
 
 	rb := roaring_init()
 	defer roaring_free(&rb)
 
+	roaring_set(&rb, 1)
+	roaring_set(&rb, 2)
+
+	roaring_set(&rb, 4)
+	roaring_set(&rb, 5)
+	roaring_set(&rb, 6)
+	roaring_set(&rb, 7)
+	roaring_set(&rb, 8)
+	roaring_set(&rb, 9)
+
+	for i in 12..<10000 {
+		if i % 2 == 0 {
+			roaring_set(&rb, u32be(i))
+		}
+	}
+
+	run_list := convert_bitmap_to_run_list(rb.index[0].(Dense_Container))
+	fmt.println(run_list)
+
+	// fmt.println("RUNS", count_runs(rb.index[0].(Dense_Container)))
+	// fmt.println("RUNS", should_convert_to_run_container(rb.index[0].(Dense_Container)))
+
 	// ok: bool
 	// err: Roaring_Error
 
-	ok, err := roaring_set(&rb, 0)
-	fmt.println("ok", ok, "err", err)
+	// ok, err := roaring_set(&rb, 0)
+	// fmt.println("ok", ok, "err", err)
 
-	ok, err = roaring_unset(&rb, 0)
-	fmt.println("ok", ok, "err", err)
+	// ok, err = roaring_unset(&rb, 0)
+	// fmt.println("ok", ok, "err", err)
 
-	ok, err = roaring_unset(&rb, 0)
-	fmt.println("ok", ok, "err", err)
+	// ok, err = roaring_unset(&rb, 0)
+	// fmt.println("ok", ok, "err", err)
 
 	// roaring_set(x, &rb)
 	// fmt.println("roaring bitmap AFTER INSERT:", rb)
