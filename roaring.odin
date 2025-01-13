@@ -103,9 +103,6 @@ dense_container_free :: proc(dc: Dense_Container) {
 	delete(dc.bitmap)
 }
 
-// TODO: Add an error to be returned here if the value cannot be
-// found in the bitmap.
-//
 // If a container doesn’t already exist then create a new array container,
 // add it to the Roaring bitmap’s first-level index, and add N to the array.
 roaring_set :: proc(
@@ -184,8 +181,9 @@ roaring_unset :: proc(
 		if c.cardinality == 0 {
 			roaring_free_at(rb, i)
 		}
-	// NOTE: This case should never occur in regular usage because we convert dense
-	// containers to sparse containers when they fall down to <4096 elements.
+	// NOTE: This case should never occur in regular usage because we convert
+	// dense containers to sparse containers when they fall down to <4096
+	// elements.
 	case Dense_Container:
 		if c.cardinality == 0 {
 			roaring_free_at(rb, i)
@@ -315,7 +313,6 @@ unset_bitmap :: proc(
 	return true, nil
 }
 
-// TODO: Add some assertions.
 is_set_bitmap :: proc(dc: Dense_Container, n: u16be) -> (found: bool) {
 	bitmap := dc.bitmap
 
@@ -484,23 +481,37 @@ intersection_array_with_array :: proc(
 	sc2: Sparse_Container,
 	allocator := context.allocator,
 ) -> Sparse_Container {
-	new_cardinality: int
-	if sc1.cardinality < sc2.cardinality {
-		new_cardinality = sc1.cardinality
-	} else {
-		new_cardinality = sc2.cardinality
-	}
 	sc := sparse_container_init(allocator)
 
-	// FIXME: Actually do both of these.
+	// Iterate over the smaller container and find all the values that match
+	// from the larger. This helps to reduce the no. of binary searches we
+	// need to perform.
+	if sc1.cardinality < sc2.cardinality {
+		for v in sc1.packed_array {
+			if is_set_packed_array(sc2, v) {
+				set_packed_array(&sc, v)
+			}
+		}
+	} else {
+		for v in sc2.packed_array {
+			if is_set_packed_array(sc1, v) {
+				set_packed_array(&sc, v)
+			}
+		}
+	}
 
+	// FIXME: Actually do both of these.
+	//
+	// Ref: https://lemire.me/blog/2019/01/16/faster-intersections-between-sorted-arrays-with-shotgun/
+	// Ref: https://softwaredoug.com/blog/2024/05/05/faster-intersect
+	//
 	// Used to check if the cardinalities differ by less than a factor of 64.
 	// For intersections, we use a simple merge (akin to what is done in merge
 	// sort) when the two arrays have cardinalities that differ by less than a
 	// factor of 64. Otherwise, we use galloping intersections.
 	// b1 := (sc1.cardinality / 64) < sc2.cardinality
 	// b2 := sc2.cardinality < (sc1.cardinality * 64)
-	// // Use the simple merge.
+	// // Use the simple merge AKA what we have above.
 	// if b1 && b2 {
 	// // Use a galloping intersection.
 	// } else {
@@ -508,11 +519,6 @@ intersection_array_with_array :: proc(
 
 	// Naive implementation to start. Just binary search every value in c1 in the
 	// c2 array. If found, add that value to the new array.
-	for v in sc1.packed_array {
-		if is_set_packed_array(sc2, v) {
-			set_packed_array(&sc, v)
-		}
-	}
 
 	return sc
 }
