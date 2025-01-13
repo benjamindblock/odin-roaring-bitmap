@@ -4,10 +4,19 @@ import "core:fmt"
 import "core:mem"
 import "core:slice"
 
-MOST_SIG: u32 = 0b00000000000000001111111111111111
-LEAST_SIG: u32 = 0b11111111111111110000000000000000
+Roaring_Error :: union {
+	Already_Set_Error,
+	Not_Set_Error,
+}
 
-// NOTE: The packed_array must always be sorted.
+Already_Set_Error :: struct {
+	value: u16be,
+}
+
+Not_Set_Error :: struct {
+	value: u16be,
+}
+
 Sparse_Container :: struct {
 	packed_array: [dynamic]u16be,
 	cardinality: int,
@@ -49,16 +58,22 @@ roaring_init :: proc(allocator := context.allocator) -> Roaring_Bitmap {
 	return Roaring_Bitmap{index=index, allocator=allocator}
 }
 
-roaring_free :: proc(rb: Roaring_Bitmap) {
-	for key, container in rb.index {
-		switch c in container {
-		case Sparse_Container:
-			sparse_container_free(c)
-		case Dense_Container:
-			dense_container_free(c)
-		}
+roaring_free :: proc(rb: ^Roaring_Bitmap) {
+	for k, _ in rb.index {
+		roaring_free_at(rb, k)
 	}
 	delete(rb.index)
+}
+
+roaring_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
+	container := rb.index[i]
+	switch c in container {
+	case Sparse_Container:
+		sparse_container_free(c)
+	case Dense_Container:
+		dense_container_free(c)
+	}
+	delete_key(&rb.index, i)
 }
 
 sparse_container_init :: proc(allocator := context.allocator) -> Sparse_Container {
@@ -93,12 +108,10 @@ dense_container_free :: proc(dc: Dense_Container) {
 //
 // If a container doesn’t already exist then create a new array container,
 // add it to the Roaring bitmap’s first-level index, and add N to the array.
-roaring_set :: proc(rb: ^Roaring_Bitmap, n: u32be) {
-	// If the value is already in the bitmap, do nothing.
-	if roaring_is_set(rb^, n) {
-		return
-	}
-
+roaring_set :: proc(
+	rb: ^Roaring_Bitmap,
+	n: u32be,
+) -> (ok: bool, err: Roaring_Error) {
 	i := most_significant(n)
 	j := least_significant(n)
 
@@ -106,9 +119,9 @@ roaring_set :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 	// first and insert the value into it, and add to the roaring bitmap.
 	if !(i in rb.index) {
 		sc := sparse_container_init(rb.allocator)
-		set_packed_array(&sc, j)
+		set_packed_array(&sc, j) or_return
 		rb.index[i] = sc
-		return
+		return true, nil
 	}
 
 	// If the container does exist, add it to the correct one.
@@ -119,34 +132,40 @@ roaring_set :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 		// bitmap container. Then set the bit at N % 2^16.
 		if c.cardinality == 4096 {
 			dc := convert_container_from_sparse_to_dense(c)
-			set_bitmap(&dc, j)
+			set_bitmap(&dc, j) or_return
 			rb.index[i] = dc
 		} else {
-			set_packed_array(&c, j)
+			set_packed_array(&c, j) or_return
 			rb.index[i] = c
 		}
 	case Dense_Container:
-		set_bitmap(&c, j)
+		set_bitmap(&c, j) or_return
 		rb.index[i] = c
 	}
+
+	return true, nil
 }
 
-roaring_unset :: proc(rb: ^Roaring_Bitmap, n: u32be) {
-	// If the value is not in the bitmap, do nothing.
-	if !roaring_is_set(rb^, n) {
-		return
-	}
-
+roaring_unset :: proc(
+	rb: ^Roaring_Bitmap,
+	n: u32be,
+) -> (ok: bool, err: Roaring_Error) {
 	i := most_significant(n)
 	j := least_significant(n)
+
+	// If the container for this value does not exist, return
+	// an error.
+	if !(i in rb.index) {
+		return false, Not_Set_Error{j}
+	}
 
 	container := rb.index[i]
 	switch &c in container {
 	case Sparse_Container:
-		unset_packed_array(&c, j)
+		unset_packed_array(&c, j) or_return
 		rb.index[i] = c
 	case Dense_Container:
-		unset_bitmap(&c, j)
+		unset_bitmap(&c, j) or_return
 
 		// If we have returned to <= 4096 elements after unsetting a value, then convert
 		// the dense bitmap back into the packed array (eg. sparse) representation.
@@ -163,15 +182,17 @@ roaring_unset :: proc(rb: ^Roaring_Bitmap, n: u32be) {
 	switch c in container {
 	case Sparse_Container:
 		if c.cardinality == 0 {
-			delete_key(&rb.index, i)
+			roaring_free_at(rb, i)
 		}
 	// NOTE: This case should never occur in regular usage because we convert dense
 	// containers to sparse containers when they fall down to <4096 elements.
 	case Dense_Container:
 		if c.cardinality == 0 {
-			delete_key(&rb.index, i)
+			roaring_free_at(rb, i)
 		}
 	}
+
+	return true, nil
 }
 
 // To check if an integer N exists, get N’s 16 most significant bits (N / 2^16)
@@ -212,17 +233,36 @@ least_significant :: proc(n: u32be) -> u16be {
 	return slice.to_type(as_bytes[2:4], u16be)
 }
 
-// FIXME: Use find+inject instead of adding to the end + sorting.
-set_packed_array :: proc(sc: ^Sparse_Container, n: u16be) {
-	append(&sc.packed_array, n)
-	slice.sort(sc.packed_array[:])
+set_packed_array :: proc(
+	sc: ^Sparse_Container,
+	n: u16be,
+) -> (ok: bool, err: Roaring_Error) {
+	i, found := slice.binary_search(sc.packed_array[:], n)
+
+	if found {
+		return false, Already_Set_Error{n}
+	}
+
+	inject_at(&sc.packed_array, i, n)
 	sc.cardinality += 1
+
+	return true, nil
 }
 
-unset_packed_array :: proc(sc: ^Sparse_Container, n: u16be) {
-	i, _ := slice.binary_search(sc.packed_array[:], n)
+unset_packed_array :: proc(
+	sc: ^Sparse_Container,
+	n: u16be,
+) -> (ok: bool, err: Roaring_Error) {
+	i, found := slice.binary_search(sc.packed_array[:], n)
+
+	if !found {
+		return false, Not_Set_Error{n}
+	}
+
 	ordered_remove(&sc.packed_array, i)
 	sc.cardinality -= 1
+
+	return true, nil
 }
 
 is_set_packed_array :: proc(sc: Sparse_Container, n: u16be) -> (found: bool) {
@@ -230,8 +270,14 @@ is_set_packed_array :: proc(sc: Sparse_Container, n: u16be) -> (found: bool) {
 	return found
 }
 
-// TODO: Add some assertions.
-set_bitmap :: proc(dc: ^Dense_Container, n: u16be) {
+set_bitmap :: proc(
+	dc: ^Dense_Container,
+	n: u16be,
+) -> (ok: bool, err: Roaring_Error) {
+	if is_set_bitmap(dc^, n) {
+		return false, Already_Set_Error{n}
+	}
+
 	bitmap := dc.bitmap
 
 	byte_i := n / 8
@@ -242,9 +288,18 @@ set_bitmap :: proc(dc: ^Dense_Container, n: u16be) {
 
 	dc.bitmap = bitmap
 	dc.cardinality += 1
+
+	return true, nil
 }
 
-unset_bitmap :: proc(dc: ^Dense_Container, n: u16be) {
+unset_bitmap :: proc(
+	dc: ^Dense_Container,
+	n: u16be,
+) -> (ok: bool, err: Roaring_Error) {
+	if !is_set_bitmap(dc^, n) {
+		return false, Not_Set_Error{n}
+	}
+
 	bitmap := dc.bitmap
 
 	byte_i := n / 8
@@ -256,6 +311,8 @@ unset_bitmap :: proc(dc: ^Dense_Container, n: u16be) {
 
 	dc.bitmap = bitmap
 	dc.cardinality -= 1
+
+	return true, nil
 }
 
 // TODO: Add some assertions.
@@ -604,29 +661,21 @@ union_bitmap_with_bitmap :: proc(
 
 main :: proc() {
 	fmt.println("Hello, world!")
-	x: u32be = 4
-	fmt.println(x)
-	fmt.printf("{:32b}\n", x)
 
-	rb1 := roaring_init()
-	for i in 0..=4097 {
-		roaring_set(&rb1, u32be(i))
-	}
+	rb := roaring_init()
+	defer roaring_free(&rb)
 
-	rb2 := roaring_init()
-	for i in 4090..=10000 {
-		roaring_set(&rb2, u32be(i))
-	}
-	fmt.println(rb2)
+	// ok: bool
+	// err: Roaring_Error
 
-	rb_int := roaring_intersection(rb1, rb2)
-	fmt.println(rb_int)
+	ok, err := roaring_set(&rb, 0)
+	fmt.println("ok", ok, "err", err)
 
-	rb_int = roaring_union(rb1, rb2)
-	fmt.println(rb_int)
+	ok, err = roaring_unset(&rb, 0)
+	fmt.println("ok", ok, "err", err)
 
-	fmt.printf("{:8b}\n", 6)
-	fmt.println(bit_count(3))
+	ok, err = roaring_unset(&rb, 0)
+	fmt.println("ok", ok, "err", err)
 
 	// roaring_set(x, &rb)
 	// fmt.println("roaring bitmap AFTER INSERT:", rb)

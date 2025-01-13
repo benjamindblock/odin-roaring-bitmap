@@ -1,12 +1,11 @@
 package roaring
 
-import "core:fmt"
 import "core:testing"
 
 @(test)
 test_setting_values_works_for_sparse :: proc(t: ^testing.T) {
 	rb := roaring_init()
-	defer roaring_free(rb)
+	defer roaring_free(&rb)
 
 	roaring_set(&rb, 0)
 	roaring_set(&rb, 1)
@@ -34,7 +33,7 @@ test_setting_values_works_for_sparse :: proc(t: ^testing.T) {
 	// Unset the value 2 from the bitmap, ensure that it decreases
 	// the cardinality.
 	roaring_unset(&rb, 2)
-	for k, v in rb.index {
+	for _, v in rb.index {
 		container = v
 	}
 	sc, ok = container.(Sparse_Container)
@@ -51,7 +50,7 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 	// Create a Roaring_Bitmap and assert that setting up to
 	// 4096 values will use a Sparse_Container.
 	rb := roaring_init()
-	defer roaring_free(rb)
+	defer roaring_free(&rb)
 
 	for i in 0..<4096 {
 		roaring_set(&rb, u32be(i))
@@ -61,7 +60,7 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 
 	count := 0
 	container: Container
-	for k, v in rb.index {
+	for _, v in rb.index {
 		count += 1
 		container = v
 	}
@@ -76,7 +75,7 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb, 4096), true)
 
 	count = 0
-	for k, v in rb.index {
+	for _, v in rb.index {
 		count += 1
 		container = v
 	}
@@ -89,7 +88,7 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 	// back down to a Sparse_Container.
 	roaring_unset(&rb, 4096)
 	testing.expect_value(t, roaring_is_set(rb, 4096), false)
-	for k, v in rb.index {
+	for _, v in rb.index {
 		container = v
 	}
 	sc, sc_ok = container.(Sparse_Container)
@@ -100,7 +99,7 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 @(test)
 test_multiple_sparse_containers :: proc(t: ^testing.T) {
 	rb := roaring_init()
-	defer roaring_free(rb)
+	defer roaring_free(&rb)
 
 	roaring_set(&rb, 0)
 	roaring_set(&rb, 1)
@@ -130,9 +129,9 @@ test_intersection_sparse :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 0), false)
 	testing.expect_value(t, roaring_is_set(rb3, 1), true)
 
-	roaring_free(rb1)
-	roaring_free(rb2)
-	roaring_free(rb3)
+	roaring_free(&rb1)
+	roaring_free(&rb2)
+	roaring_free(&rb3)
 }
 
 @(test)
@@ -152,9 +151,9 @@ test_intersection_sparse_and_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 2), false)
 	testing.expect_value(t, roaring_is_set(rb3, 4096), false)
 
-	roaring_free(rb1)
-	roaring_free(rb2)
-	roaring_free(rb3)
+	roaring_free(&rb1)
+	roaring_free(&rb2)
+	roaring_free(&rb3)
 }
 
 @(test)
@@ -175,9 +174,9 @@ test_intersection_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 4096), true)
 	testing.expect_value(t, roaring_is_set(rb3, 4097), false)
 
-	roaring_free(rb1)
-	roaring_free(rb2)
-	roaring_free(rb3)
+	roaring_free(&rb1)
+	roaring_free(&rb2)
+	roaring_free(&rb3)
 }
 
 @(test)
@@ -194,9 +193,9 @@ test_union_sparse :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 0), true)
 	testing.expect_value(t, roaring_is_set(rb3, 1), true)
 
-	roaring_free(rb1)
-	roaring_free(rb2)
-	roaring_free(rb3)
+	roaring_free(&rb1)
+	roaring_free(&rb2)
+	roaring_free(&rb3)
 }
 
 @(test)
@@ -218,9 +217,9 @@ test_union_sparse_and_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 4096), true)
 	testing.expect_value(t, roaring_is_set(rb3, 4097), false)
 
-	roaring_free(rb1)
-	roaring_free(rb2)
-	roaring_free(rb3)
+	roaring_free(&rb1)
+	roaring_free(&rb2)
+	roaring_free(&rb3)
 }
 
 @(test)
@@ -246,9 +245,9 @@ test_union_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, roaring_is_set(rb3, 123456800), true)
 	testing.expect_value(t, roaring_is_set(rb3, 123456801), false)
 
-	roaring_free(rb1)
-	roaring_free(rb2)
-	roaring_free(rb3)
+	roaring_free(&rb1)
+	roaring_free(&rb2)
+	roaring_free(&rb3)
 }
 
 @(test)
@@ -257,4 +256,47 @@ test_bit_count :: proc(t: ^testing.T) {
 	testing.expect_value(t, bit_count(1), 1)
 	testing.expect_value(t, bit_count(2), 1)
 	testing.expect_value(t, bit_count(3), 2)
+}
+
+@(test)
+test_errors_thrown :: proc(t: ^testing.T) {
+	rb := roaring_init()
+	defer roaring_free(&rb)
+
+	// Ensure we don't prefill the packed array with any 0 values
+	// after initializing.
+	testing.expect_value(t, roaring_is_set(rb, 0), false)
+
+	ok: bool
+	err: Roaring_Error
+
+	// Assert we insert without errors.
+	ok, err = roaring_set(&rb, 0)
+	testing.expect_value(t, roaring_is_set(rb, 0), true)
+	testing.expect_value(t, len(rb.index), 1)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, err, nil)
+
+	// Attempting to insert again causes an Already_Set_Error to be returned.
+	ok, err = roaring_set(&rb, 0)
+	testing.expect_value(t, roaring_is_set(rb, 0), true)
+	testing.expect_value(t, len(rb.index), 1)
+	testing.expect_value(t, ok, false)
+	_, ok = err.(Already_Set_Error)
+	testing.expect_value(t, ok, true)
+
+	// // Unsetting works as expected.
+	ok, err = roaring_unset(&rb, 0)
+	testing.expect_value(t, roaring_is_set(rb, 0), false)
+	testing.expect_value(t, len(rb.index), 0)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, err, nil)
+
+	// Unsetting the same value again causes an error.
+	ok, err = roaring_unset(&rb, 0)
+	testing.expect_value(t, roaring_is_set(rb, 0), false)
+	testing.expect_value(t, len(rb.index), 0)
+	testing.expect_value(t, ok, false)
+	_, ok = err.(Not_Set_Error)
+	testing.expect_value(t, ok, true)
 }
