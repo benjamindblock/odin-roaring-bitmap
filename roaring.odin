@@ -916,10 +916,10 @@ intersection_array_with_run :: proc(
 		return new_sc
 	}
 
-	j := 0
+	i := 0
 	array_loop: for array_val in sc.packed_array {
 		run_loop: for {
-			run := rc.run_list[j]
+			run := rc.run_list[i]
 			if run_contains(run, int(array_val)) {
 				set_packed_array(&new_sc, array_val)
 
@@ -927,11 +927,11 @@ intersection_array_with_run :: proc(
 				// and start looking for the next value.
 				continue array_loop
 			} else {
-				j += 1
+				i += 1
 			}
 
 			// Break out of both loops if we have reached the end.
-			if j >= len(rc.run_list) {
+			if i >= len(rc.run_list) {
 				break array_loop
 			}
 		}
@@ -953,20 +953,102 @@ intersection_array_with_run :: proc(
 // Algorithm 3). We then check the cardinality of the result, converting to an
 // array container if needed."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 10, 11)
-//
-// FIXME: Finish
 intersection_bitmap_with_run :: proc(
 	dc: Dense_Container,
 	rc: Run_Container,
 	allocator := context.allocator,
 ) -> Container {
-	new_sc := sparse_container_init(allocator)
-	// for v in sc.packed_array {
-	// 	if is_set_bitmap(dc, v) {
-	// 		set_packed_array(&new_sc, v)
-	// 	}
-	// }
-	return new_sc
+	if container_cardinality(rc) <= 4096 {
+		new_sc := sparse_container_init(allocator)
+		for run in rc.run_list {
+			for i := run.start; i < run.start + run.length; i += 1 {
+				if is_set_bitmap(dc, u16be(i)) {
+					set_packed_array(&new_sc, u16be(i))	
+				}
+			}
+		}
+		return new_sc
+	} else {
+		new_dc := clone_container(dc, allocator).(Dense_Container)
+
+		// Set the complement of the Run_List to be zero.
+		for run, i in rc.run_list {
+			if i == 0 && run.start > 0 {
+				unset_range_of_bits_in_dense_container(&new_dc, 0, run.length)
+			} else if i > 0 {
+				prev_run := rc.run_list[i - 1]
+				complement_start := run.start - prev_run.start + 1
+				complement_length := run.start - complement_start
+				unset_range_of_bits_in_dense_container(&new_dc, complement_start, complement_length)
+			}
+		}
+
+		// Set any remaining bits after the last Run to be 0.
+		last_run := rc.run_list[len(rc.run_list) - 1]
+		unset_start := last_run.start + last_run.length + 1
+		unset_length := (len(dc.bitmap) * 8) - unset_start
+		unset_range_of_bits_in_dense_container(&new_dc, unset_start, unset_length)
+
+		// Determine the cardinality.
+		acc := 0
+		for byte in new_dc.bitmap {
+			acc += bit_count(int(byte))
+		}
+		new_dc.cardinality = acc
+
+		// Convert down to a Sparse_Container if needed.
+		if new_dc.cardinality <= 4096 {
+			return convert_container_from_dense_to_sparse(new_dc, allocator)
+		} else {
+			return new_dc
+		}
+	}
+}
+
+// Sets a range of bits from 0 to 1 in a Dense_Container bitmap.
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
+set_range_of_bits_in_dense_container :: proc(dc: ^Dense_Container, start: int, length: int) {
+	end := start + length
+
+	x1 := start / 8
+	y1 := (end - 1) / 8
+	z := 0b11111111
+
+	x2 := z << u8(start % 8)
+	y2 := z >> u8(8 - (end % 8) % 8)
+
+	if x1 == y1 {
+		dc.bitmap[x1] = dc.bitmap[x1] | u8(x2 & y2)
+	} else {
+		dc.bitmap[x1] = dc.bitmap[x1] | u8(x2)
+		for k := x1 + 1; k < y1; k += 1 {
+			dc.bitmap[k] = dc.bitmap[k] | u8(z)
+		}
+		dc.bitmap[y1] = dc.bitmap[y1] | u8(y2)
+	}
+}
+
+// Sets a range of bits from 1 to 0 in a Dense_Container bitmap.
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
+unset_range_of_bits_in_dense_container :: proc(dc: ^Dense_Container, start: int, length: int) {
+	end := start + length
+
+	x1 := start / 8
+	y1 := (end - 1) / 8
+	z := 0b11111111
+
+	x2 := z << u8(start % 8)
+	y2 := z >> u8(8 - (end % 8) % 8)
+
+	if x1 == y1 {
+		dc.bitmap[x1] = dc.bitmap[x1] &~ u8(x2 & y2)
+	} else {
+		dc.bitmap[x1] = dc.bitmap[x1] &~ u8(x2)
+		for k := x1 + 1; k < y1; k += 1 {
+			dc.bitmap[k] = dc.bitmap[k] &~ u8(z)
+		}
+		dc.bitmap[y1] = dc.bitmap[y1] &~ u8(y2)
+	}
 }
 
 // "When computing the intersection between two run containers, we first produce a
@@ -1183,21 +1265,39 @@ run_optimize :: proc(rb: Roaring_Bitmap) {
 main :: proc() {
 	fmt.println("Hello, world!")
 
-	// 1 0 0 1 0 0 0 0
-	sc := sparse_container_init()
-	defer sparse_container_free(sc)
-	set_packed_array(&sc, 0)
-	set_packed_array(&sc, 3)
-
-	// 1 0 0 1 1 0 0 1
 	rc := run_container_init()
 	defer run_container_free(rc)
-	set_run_list(&rc, 0)
-	set_run_list(&rc, 3)
-	set_run_list(&rc, 4)
-	set_run_list(&rc, 7)
+	for i in 0..<5000 {
+		set_run_list(&rc, u16be(i))
+	}
 
+	// 1 0 0 0 0 0 0 0
+	dc := dense_container_init()
+	defer dense_container_free(dc)
+	set_bitmap(&dc, 0)
+	set_bitmap(&dc, 1)
+	set_bitmap(&dc, 2000)
+	set_bitmap(&dc, 3000)
+	set_bitmap(&dc, 7000)
 
-	new_sc := intersection_array_with_run(sc, rc)
-	fmt.println(new_sc)
+	fmt.println(intersection_bitmap_with_run(dc, rc))
+	// defer sparse_container_free(new_sc)
+	// fmt.println(new_sc)
+
+	// set_range_of_bits_in_dense_container(&dc, 1000, 11574)
+	// unset_range_of_bits_in_dense_container(&dc, 2000, 4000)
+	// set_range_of_bits_in_dense_container(&dc, 1000, 11574)
+	// fmt.println(dc)
+
+	// set_bitmap(&dc, 0)
+	// set_bitmap(&dc, 4)
+
+	// set_run_list(&rc, 0)
+	// set_run_list(&rc, 3)
+	// set_run_list(&rc, 4)
+	// set_run_list(&rc, 7)
+
+	// new_sc := intersection_bitmap_with_run(dc, rc).(Sparse_Container)
+	// defer sparse_container_free(new_sc)
+	// fmt.println(new_sc)
 }

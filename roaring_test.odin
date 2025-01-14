@@ -519,12 +519,74 @@ test_intersection_array_with_run :: proc(t: ^testing.T) {
 	defer sparse_container_free(new_sc)
 
 	testing.expect_value(t, new_sc.cardinality, 2)
-	testing.expect_value(t, is_set_packed_array(sc, 0), true)
-	testing.expect_value(t, is_set_packed_array(sc, 1), false)
-	testing.expect_value(t, is_set_packed_array(sc, 2), false)
-	testing.expect_value(t, is_set_packed_array(sc, 3), false)
-	testing.expect_value(t, is_set_packed_array(sc, 4), true)
-	testing.expect_value(t, is_set_packed_array(sc, 5), false)
-	testing.expect_value(t, is_set_packed_array(sc, 6), false)
-	testing.expect_value(t, is_set_packed_array(sc, 7), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 0), true)
+	testing.expect_value(t, is_set_packed_array(new_sc, 1), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 2), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 3), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 4), true)
+	testing.expect_value(t, is_set_packed_array(new_sc, 5), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 6), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 7), false)
+}
+
+@(test)
+test_intersection_bitmap_with_run_sparse :: proc(t: ^testing.T) {
+	// 1 0 0 0 0 0 0 0
+	dc := dense_container_init()
+	defer dense_container_free(dc)
+	set_bitmap(&dc, 0)
+	set_bitmap(&dc, 4)
+
+	// 1 0 0 1 1 0 0 1
+	rc := run_container_init()
+	defer run_container_free(rc)
+	set_run_list(&rc, 0)
+	set_run_list(&rc, 3)
+	set_run_list(&rc, 4)
+	set_run_list(&rc, 7)
+
+	new_sc := intersection_bitmap_with_run(dc, rc).(Sparse_Container)
+	defer sparse_container_free(new_sc)
+
+	testing.expect_value(t, new_sc.cardinality, 2)
+	testing.expect_value(t, is_set_packed_array(new_sc, 0), true)
+	testing.expect_value(t, is_set_packed_array(new_sc, 1), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 2), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 3), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 4), true)
+	testing.expect_value(t, is_set_packed_array(new_sc, 5), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 6), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 7), false)
+}
+
+@(test)
+test_intersection_bitmap_with_run_dense :: proc(t: ^testing.T) {
+	// 1 0 0 0 0 0 0 0
+	dc := dense_container_init()
+	defer dense_container_free(dc)
+	set_bitmap(&dc, 0)
+	set_bitmap(&dc, 3)
+	set_bitmap(&dc, 4)
+	set_bitmap(&dc, 7)
+
+	// 1 0 0 1 1 0 0 1
+	rc := run_container_init()
+	defer run_container_free(rc)
+	for i in 0..<5000 {
+		set_run_list(&rc, u16be(i))
+	}
+
+	new_sc := intersection_bitmap_with_run(dc, rc).(Sparse_Container)
+	defer sparse_container_free(new_sc)
+
+	testing.expect_value(t, new_sc.cardinality, 4)
+	testing.expect_value(t, is_set_packed_array(new_sc, 0), true)
+	testing.expect_value(t, is_set_packed_array(new_sc, 1), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 2), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 3), true)
+	testing.expect_value(t, is_set_packed_array(new_sc, 4), true)
+	testing.expect_value(t, is_set_packed_array(new_sc, 5), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 6), false)
+	testing.expect_value(t, is_set_packed_array(new_sc, 7), true)
+	testing.expect_value(t, is_set_packed_array(new_sc, 8), false)
 }
