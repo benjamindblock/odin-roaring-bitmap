@@ -498,3 +498,33 @@ test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
 	exp_run := Run{start=0, length=1}
 	testing.expect_value(t, run_list[0], exp_run)
 }
+
+@(test)
+test_intersection_array_with_run :: proc(t: ^testing.T) {
+	// 1 0 0 0 0 0 0 0
+	sc := sparse_container_init()
+	defer sparse_container_free(sc)
+	set_packed_array(&sc, 0)
+	set_packed_array(&sc, 4)
+
+	// 1 0 0 1 1 0 0 1
+	rc := run_container_init()
+	defer run_container_free(rc)
+	set_run_list(&rc, 0)
+	set_run_list(&rc, 3)
+	set_run_list(&rc, 4)
+	set_run_list(&rc, 7)
+
+	new_sc := intersection_array_with_run(sc, rc)
+	defer sparse_container_free(new_sc)
+
+	testing.expect_value(t, new_sc.cardinality, 2)
+	testing.expect_value(t, is_set_packed_array(sc, 0), true)
+	testing.expect_value(t, is_set_packed_array(sc, 1), false)
+	testing.expect_value(t, is_set_packed_array(sc, 2), false)
+	testing.expect_value(t, is_set_packed_array(sc, 3), false)
+	testing.expect_value(t, is_set_packed_array(sc, 4), true)
+	testing.expect_value(t, is_set_packed_array(sc, 5), false)
+	testing.expect_value(t, is_set_packed_array(sc, 6), false)
+	testing.expect_value(t, is_set_packed_array(sc, 7), false)
+}

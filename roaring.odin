@@ -613,20 +613,33 @@ roaring_intersection :: proc(
 		if k1 in rb2.index {
 			v2 := rb2.index[k1]
 
-			#partial switch c1 in v1 {
+			switch c1 in v1 {
 			case Sparse_Container:
-				#partial switch c2 in v2 {
+				switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = intersection_array_with_array(c1, c2, allocator)
 				case Dense_Container:
 					rb.index[k1] = intersection_array_with_bitmap(c1, c2, allocator)
+				case Run_Container:
+					rb.index[k1] = intersection_array_with_run(c1, c2, allocator)
 				}
 			case Dense_Container:
-				#partial switch c2 in v2 {
+				switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = intersection_array_with_bitmap(c2, c1, allocator)
 				case Dense_Container:
 					rb.index[k1] = intersection_bitmap_with_bitmap(c1, c2, allocator)
+				case Run_Container:
+					rb.index[k1] = intersection_bitmap_with_run(c1, c2, allocator)
+				}
+			case Run_Container:
+				switch c2 in v2 {
+				case Sparse_Container:
+					rb.index[k1] = intersection_array_with_run(c2, c1, allocator)
+				case Dense_Container:
+					rb.index[k1] = intersection_bitmap_with_run(c2, c1, allocator)
+				case Run_Container:
+					rb.index[k1] = intersection_run_with_run(c1, c2, allocator)
 				}
 			}
 		}
@@ -880,6 +893,113 @@ union_bitmap_with_bitmap :: proc(
 	return dc
 }
 
+// "The intersection between a run container and an array container always outputs
+// an array container. This choice is easily justified: the result of the
+// intersection has cardinality no larger than the array container, and it cannot
+// contain more runs than the array container. We can allocate a new array
+// container that has its capacity set to the cardinality of the input array
+// container. Our algorithm is straightforward. We iterate over the values of the
+// array, simultaneously advancing in the run container. Initially, we point at
+// the first value in the array container and the first run in the run container.
+// While the run ends before the array value, we advance in the run container. If
+// the run overlaps the array value, the array value is included in the
+// intersection, otherwise it is omitted."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
+intersection_array_with_run :: proc(
+	sc: Sparse_Container,
+	rc: Run_Container,
+	allocator := context.allocator,
+) -> Sparse_Container {
+	new_sc := sparse_container_init(allocator)
+
+	if sc.cardinality == 0 || len(rc.run_list) == 0 {
+		return new_sc
+	}
+
+	j := 0
+	array_loop: for array_val in sc.packed_array {
+		run_loop: for {
+			run := rc.run_list[j]
+			if run_contains(run, int(array_val)) {
+				set_packed_array(&new_sc, array_val)
+
+				// If we found the array value, we can skip searching
+				// and start looking for the next value.
+				continue array_loop
+			} else {
+				j += 1
+			}
+
+			// Break out of both loops if we have reached the end.
+			if j >= len(rc.run_list) {
+				break array_loop
+			}
+		}
+	}
+
+	return new_sc
+}
+
+// "The intersection between a run container and a bitmap container begins by
+// checking the cardinality of the run container. If it is no larger than 4096,
+// then we create an initially empty array container. We then iterate over all
+// integers contained in the run container, and check, one by one, whether they
+// are contained in the bitmap container: when an integer is found to be in the
+// intersection, it is appended to the output in the array container. The running
+// time of this operation is determined by the cardinality of the run container.
+// Otherwise, if the input run container is larger than 4096, then we create a
+// copy of the input bitmap container. Using fast bitwise operations, we set to
+// zero all bits corresponding to the complement of the run container (see
+// Algorithm 3). We then check the cardinality of the result, converting to an
+// array container if needed."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 10, 11)
+//
+// FIXME: Finish
+intersection_bitmap_with_run :: proc(
+	dc: Dense_Container,
+	rc: Run_Container,
+	allocator := context.allocator,
+) -> Container {
+	new_sc := sparse_container_init(allocator)
+	// for v in sc.packed_array {
+	// 	if is_set_bitmap(dc, v) {
+	// 		set_packed_array(&new_sc, v)
+	// 	}
+	// }
+	return new_sc
+}
+
+// "When computing the intersection between two run containers, we first produce a
+// new run container by a simple intersection algorithm. This new run container
+// has its capacity set to the sum of the number of runs in both input containers.
+// The algorithm starts by considering the first run, in each container. If they
+// do not overlap, we advance in the container where the run occurs earlier until
+// they do overlap, or we run out of runs in one of the containers. When we run
+// out of runs in either container, the algorithm terminates. When two runs
+// overlap, we always output their intersection. If the two runs end at the same
+// value, then we advance in the two run containers. Otherwise, we advance only in
+// the run container that ends first. Once we have computed the answer, after
+// exhausting the runs in at least one container, we check whether the run
+// container should be converted to either a bitmap (if it has too many runs) or
+// to an array container (if its cardinality is too small compared to the number
+// of runs)."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
+//
+// FIXME: Finish
+intersection_run_with_run :: proc(
+	rc1: Run_Container,
+	rc2: Run_Container,
+	allocator := context.allocator,
+) -> Container {
+	new_sc := sparse_container_init(allocator)
+	// for v in sc.packed_array {
+	// 	if is_set_bitmap(dc, v) {
+	// 		set_packed_array(&new_sc, v)
+	// 	}
+	// }
+	return new_sc
+}
+
 // Counts the no. of runs in a bitmap (eg., Dense_Container).
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 7, Algorithm 1)
 count_runs :: proc(dc: Dense_Container) -> (count: int) {
@@ -1030,6 +1150,12 @@ run_container_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 	return acc
 }
 
+run_contains :: proc(r: Run, n: int) -> bool {
+	start := r.start
+	end := (start + r.length) - 1
+	return n >= start && n <= end
+}
+
 // "Thus, when first creating a Roaring bitmap, it is usually made of array and
 // bitmap containers. Runs are not compressed. Upon request, the storage of the
 // Roaring bitmap can be optimized using the runOptimize function. This triggers a
@@ -1057,37 +1183,21 @@ run_optimize :: proc(rb: Roaring_Bitmap) {
 main :: proc() {
 	fmt.println("Hello, world!")
 
-	rb := roaring_init()
-	defer roaring_free(&rb)
+	// 1 0 0 1 0 0 0 0
+	sc := sparse_container_init()
+	defer sparse_container_free(sc)
+	set_packed_array(&sc, 0)
+	set_packed_array(&sc, 3)
 
-	// Confirm all 5000 bits are set in the Dense_Container.
-	for i in 0..<6000 {
-		roaring_set(&rb, u32be(i))
-	}
+	// 1 0 0 1 1 0 0 1
+	rc := run_container_init()
+	defer run_container_free(rc)
+	set_run_list(&rc, 0)
+	set_run_list(&rc, 3)
+	set_run_list(&rc, 4)
+	set_run_list(&rc, 7)
 
-	container := rb.index[0]
-	dc, dc_ok := container.(Dense_Container)
-	fmt.println(dc_ok)
-	fmt.println(should_convert_to_run_container(dc))
-	fmt.println(count_runs(dc))
 
-	run_optimize(rb)
-	fmt.println(rb.index[0])
-
-	for i in 0..=4098 {
-		if i % 2 == 0 {
-			roaring_unset(&rb, u32be(i))
-		}
-
-		if i > 10 {
-			break
-		}
-	}
-
-	container = rb.index[0]
-	fmt.println(rb.index[0])
-	// _, dc_ok = container.(Dense_Container)
-	// fmt.println(dc_ok)
-	// fmt.println(should_convert_to_run_container(dc))
-	// fmt.println(count_runs(dc))
+	new_sc := intersection_array_with_run(sc, rc)
+	fmt.println(new_sc)
 }
