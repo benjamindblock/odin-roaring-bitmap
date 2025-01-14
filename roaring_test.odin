@@ -590,3 +590,34 @@ test_intersection_bitmap_with_run_dense :: proc(t: ^testing.T) {
 	testing.expect_value(t, is_set_packed_array(new_sc, 7), true)
 	testing.expect_value(t, is_set_packed_array(new_sc, 8), false)
 }
+
+@(test)
+test_runs_overlap :: proc(t: ^testing.T) {
+	testing.expect_value(t, runs_overlap(Run{0, 1}, Run{0, 2}), true)
+	testing.expect_value(t, runs_overlap(Run{0, 1}, Run{0, 2}), true)
+	testing.expect_value(t, runs_overlap(Run{0, 1}, Run{0, 1}), true)
+	testing.expect_value(t, runs_overlap(Run{0, 1}, Run{1, 1}), false)
+	testing.expect_value(t, runs_overlap(Run{1, 1}, Run{0, 1}), false)
+}
+
+@(test)
+test_intersection_run_with_run :: proc(t: ^testing.T) {
+	rc1 := run_container_init()
+	defer run_container_free(rc1)
+
+	rc2 := run_container_init()
+	defer run_container_free(rc2)
+
+	set_run_list(&rc1, 0)
+	set_run_list(&rc1, 2)
+	set_run_list(&rc1, 4)
+	set_run_list(&rc2, 3)
+	set_run_list(&rc2, 4)
+
+	new_rc := intersection_run_with_run(rc1, rc2).(Run_Container)
+	defer run_container_free(new_rc)
+
+	testing.expect_value(t, container_cardinality(new_rc), 1)
+	testing.expect_value(t, len(new_rc.run_list), 1)
+	testing.expect_value(t, new_rc.run_list[0], Run{4, 1})
+}

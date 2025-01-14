@@ -1,5 +1,6 @@
 package roaring
 
+import "base:builtin"
 import "core:fmt"
 import "core:math"
 import "core:mem"
@@ -1066,20 +1067,76 @@ unset_range_of_bits_in_dense_container :: proc(dc: ^Dense_Container, start: int,
 // to an array container (if its cardinality is too small compared to the number
 // of runs)."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
-//
-// FIXME: Finish
 intersection_run_with_run :: proc(
 	rc1: Run_Container,
 	rc2: Run_Container,
 	allocator := context.allocator,
 ) -> Container {
-	new_sc := sparse_container_init(allocator)
-	// for v in sc.packed_array {
-	// 	if is_set_bitmap(dc, v) {
-	// 		set_packed_array(&new_sc, v)
-	// 	}
-	// }
-	return new_sc
+	new_rc := run_container_init(allocator)
+	i := 0
+	j := 0
+
+	outer: for {
+		if i >= len(rc1.run_list) || j >= len(rc2.run_list) {
+			break outer
+		}
+
+		run1 := rc1.run_list[i]
+		run2 := rc2.run_list[j]
+
+		if runs_overlap(run1, run2) {
+			overlap_start, overlap_end := run_overlapping_range(run1, run2)
+			for n in overlap_start..=overlap_end {
+				set_run_list(&new_rc, u16be(n))
+			}
+
+			if run_end(run1) < run_end(run2) {
+				i += 1
+			} else if run_end(run2) < run_end(run1) {
+				j += 1
+			} else {
+				i += 1
+				j += 1
+			}
+		} else {
+			if run1.start < run2.start {
+				i += 1
+			} else {
+				j += 1
+			}
+		}
+	}
+
+	// FIXME: Convert to the proper container type here at the end depending
+	// on the number of runs and the cardinality.
+	//
+	// FIXME: Make a generalized method that performs the optimal conversion of
+	// one container type to another that can be called.
+
+	return new_rc
+}
+
+runs_overlap :: proc(r1: Run, r2: Run) -> bool {
+	start1 := r1.start
+	end1 := r1.start + r1.length - 1
+	start2 := r2.start
+	end2 := r2.start + r2.length - 1
+	return start1 <= end2 && start2 <= end1
+}
+
+run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: int, end: int) {
+	if !runs_overlap(r1, r2) {
+		return -1, -1
+	}
+
+	start1 := r1.start
+	end1 := r1.start + r1.length - 1
+	start2 := r2.start
+	end2 := r2.start + r2.length - 1
+
+	// Max of start1 and start2
+	// Min of end1 and end2
+	return builtin.max(start1, start2), builtin.min(end1, end2)
 }
 
 // Counts the no. of runs in a bitmap (eg., Dense_Container).
@@ -1265,39 +1322,19 @@ run_optimize :: proc(rb: Roaring_Bitmap) {
 main :: proc() {
 	fmt.println("Hello, world!")
 
-	rc := run_container_init()
-	defer run_container_free(rc)
-	for i in 0..<5000 {
-		set_run_list(&rc, u16be(i))
-	}
+	rc1 := run_container_init()
+	defer run_container_free(rc1)
 
-	// 1 0 0 0 0 0 0 0
-	dc := dense_container_init()
-	defer dense_container_free(dc)
-	set_bitmap(&dc, 0)
-	set_bitmap(&dc, 1)
-	set_bitmap(&dc, 2000)
-	set_bitmap(&dc, 3000)
-	set_bitmap(&dc, 7000)
+	rc2 := run_container_init()
+	defer run_container_free(rc2)
 
-	fmt.println(intersection_bitmap_with_run(dc, rc))
-	// defer sparse_container_free(new_sc)
-	// fmt.println(new_sc)
+	set_run_list(&rc1, 0)
+	set_run_list(&rc1, 2)
+	set_run_list(&rc1, 4)
+	set_run_list(&rc2, 3)
+	set_run_list(&rc2, 4)
 
-	// set_range_of_bits_in_dense_container(&dc, 1000, 11574)
-	// unset_range_of_bits_in_dense_container(&dc, 2000, 4000)
-	// set_range_of_bits_in_dense_container(&dc, 1000, 11574)
-	// fmt.println(dc)
-
-	// set_bitmap(&dc, 0)
-	// set_bitmap(&dc, 4)
-
-	// set_run_list(&rc, 0)
-	// set_run_list(&rc, 3)
-	// set_run_list(&rc, 4)
-	// set_run_list(&rc, 7)
-
-	// new_sc := intersection_bitmap_with_run(dc, rc).(Sparse_Container)
-	// defer sparse_container_free(new_sc)
-	// fmt.println(new_sc)
+	x := intersection_run_with_run(rc1, rc2)
+	fmt.println(x)
+	fmt.println(intersection_run_with_run(rc1, rc2))
 }
