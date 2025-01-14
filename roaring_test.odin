@@ -144,35 +144,29 @@ test_converting_from_run_to_dense_container :: proc(t: ^testing.T) {
 	rb := roaring_init()
 	defer roaring_free(&rb)
 
-	// Confirm all 5000 bits are set in the Dense_Container.
-	for i in 0..<5000 {
+	// Confirm all 6000 bits are set in the Dense_Container.
+	for i in 0..<6000 {
 		roaring_set(&rb, u32be(i))
 	}
-	for i in 5000..<9096 {
-		if i % 2 == 0 {
-			roaring_set(&rb, u32be(i))
-		}
-	}
-	container := rb.index[0]
-	dc, dc_ok := container.(Dense_Container)
-	testing.expect_value(t, dc_ok, true)
-	testing.expect_value(t, dc.cardinality, 7048)
-	testing.expect_value(t, count_runs(dc), 2048)
-	testing.expect_value(t, should_convert_to_run_container(dc), true)
-
 	run_optimize(rb)
 
-	container = rb.index[0]
+	container := rb.index[0]
 	rc, rc_ok := container.(Run_Container)
 	testing.expect_value(t, rc_ok, true)
-	testing.expect_value(t, run_container_cardinality(rc), 7048)
+	testing.expect_value(t, run_container_cardinality(rc), 6000)
+	testing.expect_value(t, len(rc.run_list), 1)
 
-	roaring_unset(&rb, 9094)
+	for i in 0..=4094 {
+		if i % 2 == 0 {
+			roaring_unset(&rb, u32be(i))
+		}
+	}
+
 	container = rb.index[0]
-	dc, dc_ok = container.(Dense_Container)
+	dc, dc_ok := container.(Dense_Container)
 	testing.expect_value(t, dc_ok, true)
-	testing.expect_value(t, dc.cardinality, 7047)
-	testing.expect_value(t, count_runs(dc), 2047)
+	testing.expect_value(t, dc.cardinality, 3952)
+	testing.expect_value(t, count_runs(dc), 2048)
 }
 
 @(test)
@@ -488,4 +482,19 @@ test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
 
 	exp_run = Run{start=12, length=1}
 	testing.expect_value(t, run_list[2], exp_run)
+}
+
+@(test)
+test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
+	dc := dense_container_init()
+	defer dense_container_free(dc)
+
+	set_bitmap(&dc, 0)
+	testing.expect_value(t, is_set_bitmap(dc, 0), true)
+
+	run_list := convert_bitmap_to_run_list(dc)
+	defer delete(run_list)
+
+	exp_run := Run{start=0, length=1}
+	testing.expect_value(t, run_list[0], exp_run)
 }

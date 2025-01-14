@@ -5,7 +5,7 @@ import "core:math"
 import "core:mem"
 import "core:slice"
 
-MIN_RUN_CARDINALITY :: 2048
+MAX_RUNS_PERMITTED :: 2048
 
 Run :: struct {
 	start: int,
@@ -144,6 +144,18 @@ run_container_free :: proc(rc: Run_Container) {
 	delete(rc.run_list)
 }
 
+container_cardinality :: proc(container: Container) -> (cardinality: int) {
+	switch c in container {
+	case Sparse_Container:
+		cardinality = c.cardinality
+	case Dense_Container:
+		cardinality = c.cardinality
+	case Run_Container:
+		cardinality = run_container_cardinality(c)
+	}
+	return cardinality
+}
+
 // If a container doesn’t already exist then create a new array container,
 // add it to the Roaring bitmap’s first-level index, and add N to the array.
 roaring_set :: proc(
@@ -200,27 +212,16 @@ roaring_unset :: proc(
 		}
 	case Run_Container:
 		unset_run_list(&c, j) or_return
-		// FIXME: Is this actually right? What is the correct heuristic here?
-		if len(c.run_list) >= MIN_RUN_CARDINALITY {
+		if len(c.run_list) >= MAX_RUNS_PERMITTED {
 			rb.index[i] = convert_container_from_run_to_dense(c, rb.allocator)
 		}
 	}
 
-	// If we have removed the last element(s) in a container, remove the container + key.
+	// If we have removed the last element(s) in a container, remove the
+	// container + key.
 	container = &rb.index[i]
-	switch c in container {
-	case Sparse_Container:
-		if c.cardinality == 0 {
-			roaring_free_at(rb, i)
-		}
-	case Dense_Container:
-		if c.cardinality == 0 {
-			roaring_free_at(rb, i)
-		}
-	case Run_Container:
-		if run_container_cardinality(c) == 0 {
-			roaring_free_at(rb, i)
-		}
+	if container_cardinality(container^) == 0 {
+		roaring_free_at(rb, i)
 	}
 
 	return true, nil
@@ -356,8 +357,9 @@ is_set_bitmap :: proc(dc: Dense_Container, n: u16be) -> (found: bool) {
 	bit_i := n - (byte_i * 8)
 
 	// How to check if a specific bit is set:
-	//   1. Store as 'temp': left shift 1 by k to create a number that has only the k-th bit set.
-	//   2. If bitwise AND of n and 'temp' is non-zero, then the bit is set.
+	// 1. Store as 'temp': left shift 1 by k to create a number that has
+	//    only the k-th bit set.
+	// 2. If bitwise AND of n and 'temp' is non-zero, then the bit is set.
 	byte := bitmap[byte_i]
 	found = (byte & (1 << bit_i)) != 0
 
@@ -480,7 +482,7 @@ unset_run_list :: proc(
 		}
 
 		run_to_check.start = n + 1
-		run_to_check.length = run_to_check.length - n
+		run_to_check.length = run_to_check.length - (run_to_check.start - new_rc.start)
 
 		inject_at(&rc.run_list, index, new_rc)
 	}
@@ -916,7 +918,7 @@ should_convert_to_run_container :: proc(container: Container) -> bool {
 		for i in 0..<(len(c.bitmap) - 1) {
 			byte := c.bitmap[i]
 			run_count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ c.bitmap[i + 1])
-			if run_count >= MIN_RUN_CARDINALITY {
+			if run_count >= MAX_RUNS_PERMITTED {
 				return false
 			}
 		}
@@ -1059,21 +1061,33 @@ main :: proc() {
 	defer roaring_free(&rb)
 
 	// Confirm all 5000 bits are set in the Dense_Container.
-	for i in 0..<5000 {
+	for i in 0..<6000 {
 		roaring_set(&rb, u32be(i))
 	}
 
 	container := rb.index[0]
-	dc, _ := container.(Dense_Container)
+	dc, dc_ok := container.(Dense_Container)
+	fmt.println(dc_ok)
 	fmt.println(should_convert_to_run_container(dc))
 	fmt.println(count_runs(dc))
 
 	run_optimize(rb)
+	fmt.println(rb.index[0])
 
-	fmt.println(rb)
+	for i in 0..=4098 {
+		if i % 2 == 0 {
+			roaring_unset(&rb, u32be(i))
+		}
 
-// 	container = rb.index[0]
-// 	dc, _ = container.(Dense_Container)
-// 	fmt.println(should_convert_to_run_container(dc))
-// 	fmt.println(count_runs(dc))
+		if i > 10 {
+			break
+		}
+	}
+
+	container = rb.index[0]
+	fmt.println(rb.index[0])
+	// _, dc_ok = container.(Dense_Container)
+	// fmt.println(dc_ok)
+	// fmt.println(should_convert_to_run_container(dc))
+	// fmt.println(count_runs(dc))
 }
