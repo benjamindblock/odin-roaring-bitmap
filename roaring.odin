@@ -95,6 +95,107 @@ roaring_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	delete_key(&rb.index, i)
 }
 
+// If a container doesn’t already exist then create a new array container,
+// add it to the Roaring bitmap’s first-level index, and add N to the array.
+roaring_set :: proc(
+	rb: ^Roaring_Bitmap,
+	n: int,
+) -> (ok: bool, err: Roaring_Error) {
+	nbe := u32be(n)
+	i := most_significant(nbe)
+	j := least_significant(nbe)
+
+	if !(i in rb.index) {
+		rb.index[i] = sparse_container_init(rb.allocator)
+		return roaring_set(rb, n)
+	}
+
+	container := &rb.index[i]
+	switch &c in container {
+	case Sparse_Container:
+		// If an array container has 4,096 integers, first convert it to a
+		// Dense_Container and then set the bit.
+		if c.cardinality == 4096 {
+			rb.index[i] = convert_container_sparse_to_dense(c, rb.allocator)
+			return roaring_set(rb, n)
+		} else {
+			set_sparse_container(&c, j) or_return
+		}
+	case Dense_Container:
+		set_dense_container(&c, j) or_return
+	case Run_Container:
+		set_run_container(&c, j) or_return
+	}
+
+	return true, nil
+}
+
+roaring_unset :: proc(
+	rb: ^Roaring_Bitmap,
+	n: int,
+) -> (ok: bool, err: Roaring_Error) {
+	n := u32be(n)
+	i := most_significant(n)
+	j := least_significant(n)
+
+	if !(i in rb.index) {
+		return false, Not_Set_Error{j}
+	}
+
+	container := &rb.index[i]
+	switch &c in container {
+	case Sparse_Container:
+		unset_packed_array(&c, j) or_return
+	case Dense_Container:
+		unset_bitmap(&c, j) or_return
+		if c.cardinality <= 4096 {
+			rb.index[i] = convert_container_dense_to_sparse(c, rb.allocator)
+		}
+	case Run_Container:
+		unset_run_container(&c, j) or_return
+		if len(c.run_list) >= MAX_RUNS_PERMITTED {
+			rb.index[i] = convert_container_run_to_dense(c, rb.allocator)
+		}
+	}
+
+	// If we have removed the last element(s) in a container, remove the
+	// container + key.
+	container = &rb.index[i]
+	if container_cardinality(container^) == 0 {
+		roaring_free_at(rb, i)
+	}
+
+	return true, nil
+}
+
+// To check if an integer N exists, get N’s 16 most significant bits (N / 2^16)
+// and use it to find N’s corresponding container in the Roaring bitmap.
+// If the container doesn’t exist, then N is not in the Roaring bitmap.
+// Checking for existence in array and bitmap containers works differently:
+//   Bitmap: check if the bit at N % 2^16 is set.
+//   Array: use binary search to find N % 2^16 in the sorted array.
+roaring_is_set :: proc(rb: Roaring_Bitmap, n: int) -> (found: bool) {
+	n := u32be(n)
+	i := most_significant(n)
+	j := least_significant(n)
+
+	if !(i in rb.index) {
+		return false
+	}
+
+	container := rb.index[i]
+	switch c in container {
+	case Sparse_Container:
+		found = is_set_packed_array(c, j)
+	case Dense_Container:
+		found = is_set_bitmap(c, j)
+	case Run_Container:
+		found = is_set_run_container(c, j)
+	}
+
+	return found
+}
+
 sparse_container_init :: proc(allocator := context.allocator) -> Sparse_Container {
 	arr := make([dynamic]u16be, allocator)
 	sc := Sparse_Container{
@@ -143,106 +244,9 @@ container_cardinality :: proc(container: Container) -> (cardinality: int) {
 	return cardinality
 }
 
-// If a container doesn’t already exist then create a new array container,
-// add it to the Roaring bitmap’s first-level index, and add N to the array.
-roaring_set :: proc(
-	rb: ^Roaring_Bitmap,
-	n: u32be,
-) -> (ok: bool, err: Roaring_Error) {
-	i := most_significant(n)
-	j := least_significant(n)
-
-	if !(i in rb.index) {
-		rb.index[i] = sparse_container_init(rb.allocator)
-		return roaring_set(rb, n)
-	}
-
-	container := &rb.index[i]
-	switch &c in container {
-	case Sparse_Container:
-		// If an array container has 4,096 integers, first convert it to a
-		// Dense_Container and then set the bit.
-		if c.cardinality == 4096 {
-			rb.index[i] = convert_container_sparse_to_dense(c, rb.allocator)
-			return roaring_set(rb, n)
-		} else {
-			set_packed_array(&c, j) or_return
-		}
-	case Dense_Container:
-		set_bitmap(&c, j) or_return
-	case Run_Container:
-		set_run_list(&c, j) or_return
-	}
-
-	return true, nil
-}
-
-roaring_unset :: proc(
-	rb: ^Roaring_Bitmap,
-	n: u32be,
-) -> (ok: bool, err: Roaring_Error) {
-	i := most_significant(n)
-	j := least_significant(n)
-
-	if !(i in rb.index) {
-		return false, Not_Set_Error{j}
-	}
-
-	container := &rb.index[i]
-	switch &c in container {
-	case Sparse_Container:
-		unset_packed_array(&c, j) or_return
-	case Dense_Container:
-		unset_bitmap(&c, j) or_return
-		if c.cardinality <= 4096 {
-			rb.index[i] = convert_container_dense_to_sparse(c, rb.allocator)
-		}
-	case Run_Container:
-		unset_run_list(&c, j) or_return
-		if len(c.run_list) >= MAX_RUNS_PERMITTED {
-			rb.index[i] = convert_container_run_to_dense(c, rb.allocator)
-		}
-	}
-
-	// If we have removed the last element(s) in a container, remove the
-	// container + key.
-	container = &rb.index[i]
-	if container_cardinality(container^) == 0 {
-		roaring_free_at(rb, i)
-	}
-
-	return true, nil
-}
-
-// To check if an integer N exists, get N’s 16 most significant bits (N / 2^16)
-// and use it to find N’s corresponding container in the Roaring bitmap.
-// If the container doesn’t exist, then N is not in the Roaring bitmap.
-// Checking for existence in array and bitmap containers works differently:
-//   Bitmap: check if the bit at N % 2^16 is set.
-//   Array: use binary search to find N % 2^16 in the sorted array.
-roaring_is_set :: proc(rb: Roaring_Bitmap, n: u32be) -> (found: bool) {
-	i := most_significant(n)
-	j := least_significant(n)
-
-	if !(i in rb.index) {
-		return false
-	}
-
-	container := rb.index[i]
-	switch c in container {
-	case Sparse_Container:
-		found = is_set_packed_array(c, j)
-	case Dense_Container:
-		found = is_set_bitmap(c, j)
-	case Run_Container:
-		found = is_set_run_list(c, j)
-	}
-
-	return found
-}
-
 // Returns a u16 in big-endian made up of the 16 most significant
 // bits in a u32be number.
+@(private)
 most_significant :: proc(n: u32be) -> u16be {
 	as_bytes := transmute([4]byte)n
 	return slice.to_type(as_bytes[0:2], u16be)
@@ -250,12 +254,13 @@ most_significant :: proc(n: u32be) -> u16be {
 
 // Returns a u16 in big-endian made up of the 16 least significant
 // bits in a u32be number.
+@(private)
 least_significant :: proc(n: u32be) -> u16be {
 	as_bytes := transmute([4]byte)n
 	return slice.to_type(as_bytes[2:4], u16be)
 }
 
-set_packed_array :: proc(
+set_sparse_container :: proc(
 	sc: ^Sparse_Container,
 	n: u16be,
 ) -> (ok: bool, err: Roaring_Error) {
@@ -292,7 +297,7 @@ is_set_packed_array :: proc(sc: Sparse_Container, n: u16be) -> (found: bool) {
 	return found
 }
 
-set_bitmap :: proc(
+set_dense_container :: proc(
 	dc: ^Dense_Container,
 	n: u16be,
 ) -> (ok: bool, err: Roaring_Error) {
@@ -356,12 +361,12 @@ is_set_bitmap :: proc(dc: Dense_Container, n: u16be) -> (found: bool) {
 // Sets a value in a Run_List.
 //
 // TODO: Cleanup and unify with find_possible_run_by_value, which is used in
-// the unset_run_list and is_set_run_list methods.
-set_run_list :: proc(
+// the unset_run_container and is_set_run_container methods.
+set_run_container :: proc(
 	rc: ^Run_Container,
 	n: u16be,
 ) -> (ok: bool, err: Roaring_Error) {
-	if is_set_run_list(rc^, n) {
+	if is_set_run_container(rc^, n) {
 		return false, Already_Set_Error{n}
 	}
 
@@ -466,11 +471,11 @@ find_possible_run_by_value :: proc(rl: Run_List, n: int) -> (run: ^Run, index: i
 // 2. Value at beginning of run -- increment start by 1 and decrease length by 1
 // 3. Value at end of run -- decrease length by 1
 // 4. Value in middle of run -- split Run into two Runs
-unset_run_list :: proc(
+unset_run_container :: proc(
 	rc: ^Run_Container,
 	n: u16be,
 ) -> (ok: bool, err: Roaring_Error) {
-	if !is_set_run_list(rc^, n) {
+	if !is_set_run_container(rc^, n) {
 		return false, Not_Set_Error{n}
 	}
 
@@ -507,7 +512,7 @@ unset_run_list :: proc(
 }
 
 // Checks to see if a value is set in a Run_Container.
-is_set_run_list :: proc(rc: Run_Container, n: u16be) -> bool {
+is_set_run_container :: proc(rc: Run_Container, n: u16be) -> bool {
 	if len(rc.run_list) == 0 {
 		return false
 	}
@@ -532,7 +537,7 @@ convert_container_sparse_to_dense :: proc(
 	dc := dense_container_init(allocator)
 
 	for i in sc.packed_array {
-		set_bitmap(&dc, i)
+		set_dense_container(&dc, i)
 	}
 
 	sparse_container_free(sc)
@@ -551,7 +556,7 @@ convert_container_dense_to_sparse :: proc(
 			bit_is_set := (byte & (1 << u8(j))) != 0
 			if bit_is_set {
 				total_i := u16be((i * 8) + j)
-				set_packed_array(&sc, total_i)
+				set_sparse_container(&sc, total_i)
 			}
 		}
 	}
@@ -571,7 +576,7 @@ convert_container_run_to_dense :: proc(
 		start := run.start
 		for i := 0; i < run.length; i += 1 {
 			v := u16be(start + i)
-			set_bitmap(&dc, v)
+			set_dense_container(&dc, v)
 		}
 	}
 
@@ -590,7 +595,7 @@ convert_container_run_to_sparse :: proc(
 		start := run.start
 		for i := 0; i < run.length; i += 1 {
 			v := u16be(start + i)
-			set_packed_array(&sc, v)
+			set_sparse_container(&sc, v)
 		}
 	}
 
@@ -808,13 +813,13 @@ intersection_array_with_array :: proc(
 	if sc1.cardinality < sc2.cardinality {
 		for v in sc1.packed_array {
 			if is_set_packed_array(sc2, v) {
-				set_packed_array(&sc, v)
+				set_sparse_container(&sc, v)
 			}
 		}
 	} else {
 		for v in sc2.packed_array {
 			if is_set_packed_array(sc1, v) {
-				set_packed_array(&sc, v)
+				set_sparse_container(&sc, v)
 			}
 		}
 	}
@@ -860,23 +865,23 @@ union_array_with_array :: proc(
 	if (sc1.cardinality + sc2.cardinality) <= 4096 {
 		sc := sparse_container_init(allocator)
 		for v in sc1.packed_array {
-			set_packed_array(&sc, v)
+			set_sparse_container(&sc, v)
 		}
 		// Only add the values from the second array *if* it has not already been added.
 		for v in sc2.packed_array {
 			if !is_set_packed_array(sc, v) {
-				set_packed_array(&sc, v)
+				set_sparse_container(&sc, v)
 			}
 		}
 		return sc
 	} else {
 		dc := dense_container_init(allocator)
 		for v in sc1.packed_array {
-			set_bitmap(&dc, v)
+			set_dense_container(&dc, v)
 		}
 		for v in sc2.packed_array {
 			if !is_set_bitmap(dc, v) {
-				set_bitmap(&dc, v)
+				set_dense_container(&dc, v)
 			}
 		}
 		return dc
@@ -895,7 +900,7 @@ intersection_array_with_bitmap :: proc(
 	new_sc := sparse_container_init(allocator)
 	for v in sc.packed_array {
 		if is_set_bitmap(dc, v) {
-			set_packed_array(&new_sc, v)
+			set_sparse_container(&new_sc, v)
 		}
 	}
 	return new_sc
@@ -913,7 +918,7 @@ union_array_with_bitmap :: proc(
 
 	for v in sc.packed_array {
 		if !is_set_bitmap(new_dc, v) {
-			set_bitmap(&new_dc, v)
+			set_dense_container(&new_dc, v)
 		}
 	}
 
@@ -957,7 +962,7 @@ intersection_bitmap_with_bitmap :: proc(
 				bit_is_set := (res & (1 << u8(j))) != 0
 				if bit_is_set {
 					total_i := u16be((i * 8) + j)
-					set_packed_array(&sc, total_i)
+					set_sparse_container(&sc, total_i)
 				}
 			}
 		}
@@ -1014,7 +1019,7 @@ intersection_array_with_run :: proc(
 			// If the run contains this array value, set it in the new array containing
 			// the intersection and continue at the outer loop with the next array value.
 			if int(array_val) >= run.start && int(array_val) < run_end(run) {
-				set_packed_array(&new_sc, array_val)
+				set_sparse_container(&new_sc, array_val)
 				continue array_loop
 			} else {
 				i += 1
@@ -1047,7 +1052,7 @@ union_array_with_run :: proc(
 	new_rc := clone_container(rc).(Run_Container)
 
 	for v in sc.packed_array {
-		set_run_list(&new_rc, v)
+		set_run_container(&new_rc, v)
 	}
 
 	return convert_container_optimal(new_rc)
@@ -1076,7 +1081,7 @@ intersection_bitmap_with_run :: proc(
 		for run in rc.run_list {
 			for i := run.start; i < run_end(run); i += 1 {
 				if is_set_bitmap(dc, u16be(i)) {
-					set_packed_array(&new_sc, u16be(i))	
+					set_sparse_container(&new_sc, u16be(i))	
 				}
 			}
 		}
@@ -1219,7 +1224,7 @@ intersection_run_with_run :: proc(
 		if runs_overlap(run1, run2) {
 			overlap_start, overlap_end := run_overlapping_range(run1, run2)
 			for n in overlap_start..=overlap_end {
-				set_run_list(&new_rc, u16be(n))
+				set_run_container(&new_rc, u16be(n))
 			}
 
 			if run_end(run1) < run_end(run2) {
@@ -1268,14 +1273,14 @@ union_run_with_run :: proc(
 	// FIXME: Can any of this be optimized?
 	for run in rc1.run_list {
 		for i := run.start; i < run_end(run); i += 1 {
-			set_run_list(&new_rc, u16be(i))
+			set_run_container(&new_rc, u16be(i))
 		}
 	}
 
 	// FIXME: Can any of this be optimized?
 	for run in rc2.run_list {
 		for i := run.start; i < run_end(run); i += 1 {
-			set_run_list(&new_rc, u16be(i))
+			set_run_container(&new_rc, u16be(i))
 		}
 	}
 

@@ -53,7 +53,7 @@ test_setting_values_works_for_dense :: proc(t: ^testing.T) {
 	defer roaring_free(&rb)
 
 	for i in 0..<4096 {
-		roaring_set(&rb, u32be(i))
+		roaring_set(&rb, i)
 	}
 	testing.expect_value(t, roaring_is_set(rb, 0), true)
 	testing.expect_value(t, roaring_is_set(rb, 4095), true)
@@ -101,15 +101,15 @@ test_setting_values_for_run_container :: proc(t: ^testing.T) {
 	rc := run_container_init()
 	defer run_container_free(rc)
 
-	set_run_list(&rc, 0)
+	set_run_container(&rc, 0)
 	testing.expect_value(t, len(rc.run_list), 1)
-	testing.expect_value(t, is_set_run_list(rc, 0), true)
-	testing.expect_value(t, is_set_run_list(rc, 1), false)
+	testing.expect_value(t, is_set_run_container(rc, 0), true)
+	testing.expect_value(t, is_set_run_container(rc, 1), false)
 
-	set_run_list(&rc, 1)
+	set_run_container(&rc, 1)
 	testing.expect_value(t, len(rc.run_list), 1)
-	testing.expect_value(t, is_set_run_list(rc, 0), true)
-	testing.expect_value(t, is_set_run_list(rc, 1), true)
+	testing.expect_value(t, is_set_run_container(rc, 0), true)
+	testing.expect_value(t, is_set_run_container(rc, 1), true)
 }
 
 @(test)
@@ -117,25 +117,25 @@ test_setting_values_for_run_container_complex :: proc(t: ^testing.T) {
 	rc := run_container_init()
 	defer run_container_free(rc)
 
-	set_run_list(&rc, 3)
-	set_run_list(&rc, 4)
-	set_run_list(&rc, 0)
-	set_run_list(&rc, 2)
+	set_run_container(&rc, 3)
+	set_run_container(&rc, 4)
+	set_run_container(&rc, 0)
+	set_run_container(&rc, 2)
 
 	testing.expect_value(t, len(rc.run_list), 2)
 	testing.expect_value(t, rc.run_list[0], Run{0, 1})
 	testing.expect_value(t, rc.run_list[1], Run{2, 3})
 
-	set_run_list(&rc, 5)
+	set_run_container(&rc, 5)
 	testing.expect_value(t, len(rc.run_list), 2)
 	testing.expect_value(t, rc.run_list[0], Run{0, 1})
 	testing.expect_value(t, rc.run_list[1], Run{2, 4})
 
-	set_run_list(&rc, 1)
+	set_run_container(&rc, 1)
 	testing.expect_value(t, len(rc.run_list), 1)
 	testing.expect_value(t, rc.run_list[0], Run{0, 6})
 
-	unset_run_list(&rc, 1)
+	unset_run_container(&rc, 1)
 	testing.expect_value(t, rc.run_list[0], Run{0, 1})
 	testing.expect_value(t, rc.run_list[1], Run{2, 4})
 }
@@ -147,7 +147,7 @@ test_converting_from_dense_to_run_container :: proc(t: ^testing.T) {
 
 	// Confirm all 5000 bits are set in the Dense_Container.
 	for i in 0..<5000 {
-		roaring_set(&rb, u32be(i))
+		roaring_set(&rb, i)
 	}
 	testing.expect_value(t, roaring_is_set(rb, 0), true)
 	testing.expect_value(t, roaring_is_set(rb, 4999), true)
@@ -174,7 +174,7 @@ test_converting_from_run_to_dense_container :: proc(t: ^testing.T) {
 
 	// Confirm all 6000 bits are set in the Dense_Container.
 	for i in 0..<6000 {
-		roaring_set(&rb, u32be(i))
+		roaring_set(&rb, i)
 	}
 	run_optimize(&rb)
 
@@ -186,7 +186,7 @@ test_converting_from_run_to_dense_container :: proc(t: ^testing.T) {
 
 	for i in 0..=4094 {
 		if i % 2 == 0 {
-			roaring_unset(&rb, u32be(i))
+			roaring_unset(&rb, i)
 		}
 	}
 
@@ -243,7 +243,7 @@ test_intersection_sparse_and_dense :: proc(t: ^testing.T) {
 
 	rb2 := roaring_init()
 	for i in 0..=4096 {
-		roaring_set(&rb2, u32be(i))
+		roaring_set(&rb2, i)
 	}
 
 	rb3 := roaring_intersection(rb1, rb2)
@@ -261,12 +261,12 @@ test_intersection_sparse_and_dense :: proc(t: ^testing.T) {
 test_intersection_dense :: proc(t: ^testing.T) {
 	rb1 := roaring_init()
 	for i in 0..=4096 {
-		roaring_set(&rb1, u32be(i))
+		roaring_set(&rb1, i)
 	}
 
 	rb2 := roaring_init()
 	for i in 4096..=9999 {
-		roaring_set(&rb2, u32be(i))
+		roaring_set(&rb2, i)
 	}
 
 	rb3 := roaring_intersection(rb1, rb2)
@@ -307,7 +307,7 @@ test_union_sparse_and_dense :: proc(t: ^testing.T) {
 
 	rb2 := roaring_init()
 	for i in 0..=4096 {
-		roaring_set(&rb2, u32be(i))
+		roaring_set(&rb2, i)
 	}
 
 	rb3 := roaring_union(rb1, rb2)
@@ -327,12 +327,12 @@ test_union_sparse_and_dense :: proc(t: ^testing.T) {
 test_union_dense :: proc(t: ^testing.T) {
 	rb1 := roaring_init()
 	for i in 0..=4096 {
-		roaring_set(&rb1, u32be(i))
+		roaring_set(&rb1, i)
 	}
 
 	rb2 := roaring_init()
 	for i in 123456789..=123456800 {
-		roaring_set(&rb2, u32be(i))
+		roaring_set(&rb2, i)
 	}
 
 	rb3 := roaring_union(rb1, rb2)
@@ -401,7 +401,7 @@ test_dense_container_count_runs :: proc(t: ^testing.T) {
 
 	for i in 0..<10000 {
 		if i % 2 == 0 {
-			roaring_set(&rb, u32be(i))
+			roaring_set(&rb, i)
 		}
 	}
 
@@ -417,7 +417,7 @@ test_should_convert_dense_container_to_run_container :: proc(t: ^testing.T) {
 	defer roaring_free(&rb)
 
 	for i in 0..<5000 {
-		roaring_set(&rb, u32be(i))
+		roaring_set(&rb, i)
 	}
 
 	dc, ok := rb.index[0].(Dense_Container)
@@ -431,19 +431,19 @@ test_should_convert_dense_container_to_run_container :: proc(t: ^testing.T) {
 test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
 	dc := dense_container_init()
 
-	set_bitmap(&dc, 1)
-	set_bitmap(&dc, 2)
+	set_dense_container(&dc, 1)
+	set_dense_container(&dc, 2)
 
-	set_bitmap(&dc, 4)
-	set_bitmap(&dc, 5)
-	set_bitmap(&dc, 6)
-	set_bitmap(&dc, 7)
-	set_bitmap(&dc, 8)
-	set_bitmap(&dc, 9)
+	set_dense_container(&dc, 4)
+	set_dense_container(&dc, 5)
+	set_dense_container(&dc, 6)
+	set_dense_container(&dc, 7)
+	set_dense_container(&dc, 8)
+	set_dense_container(&dc, 9)
 
 	for i in 12..<10000 {
 		if i % 2 == 0 {
-			set_bitmap(&dc, u16be(i))
+			set_dense_container(&dc, u16be(i))
 		}
 	}
 
@@ -465,7 +465,7 @@ test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
 test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
 	dc := dense_container_init()
 
-	set_bitmap(&dc, 0)
+	set_dense_container(&dc, 0)
 	testing.expect_value(t, is_set_bitmap(dc, 0), true)
 
 	rc := convert_container_dense_to_run(dc)
@@ -480,16 +480,16 @@ test_intersection_array_with_run :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	sc := sparse_container_init()
 	defer sparse_container_free(sc)
-	set_packed_array(&sc, 0)
-	set_packed_array(&sc, 4)
+	set_sparse_container(&sc, 0)
+	set_sparse_container(&sc, 4)
 
 	// 1 0 0 1 1 0 0 1
 	rc := run_container_init()
 	defer run_container_free(rc)
-	set_run_list(&rc, 0)
-	set_run_list(&rc, 3)
-	set_run_list(&rc, 4)
-	set_run_list(&rc, 7)
+	set_run_container(&rc, 0)
+	set_run_container(&rc, 3)
+	set_run_container(&rc, 4)
+	set_run_container(&rc, 7)
 
 	new_sc := intersection_array_with_run(sc, rc)
 	defer sparse_container_free(new_sc)
@@ -510,16 +510,16 @@ test_intersection_bitmap_with_run_sparse :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	dc := dense_container_init()
 	defer dense_container_free(dc)
-	set_bitmap(&dc, 0)
-	set_bitmap(&dc, 4)
+	set_dense_container(&dc, 0)
+	set_dense_container(&dc, 4)
 
 	// 1 0 0 1 1 0 0 1
 	rc := run_container_init()
 	defer run_container_free(rc)
-	set_run_list(&rc, 0)
-	set_run_list(&rc, 3)
-	set_run_list(&rc, 4)
-	set_run_list(&rc, 7)
+	set_run_container(&rc, 0)
+	set_run_container(&rc, 3)
+	set_run_container(&rc, 4)
+	set_run_container(&rc, 7)
 
 	new_sc := intersection_bitmap_with_run(dc, rc).(Sparse_Container)
 	defer sparse_container_free(new_sc)
@@ -540,16 +540,16 @@ test_intersection_bitmap_with_run_dense :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	dc := dense_container_init()
 	defer dense_container_free(dc)
-	set_bitmap(&dc, 0)
-	set_bitmap(&dc, 3)
-	set_bitmap(&dc, 4)
-	set_bitmap(&dc, 7)
+	set_dense_container(&dc, 0)
+	set_dense_container(&dc, 3)
+	set_dense_container(&dc, 4)
+	set_dense_container(&dc, 7)
 
 	// 1 0 0 1 1 0 0 1
 	rc := run_container_init()
 	defer run_container_free(rc)
 	for i in 0..<5000 {
-		set_run_list(&rc, u16be(i))
+		set_run_container(&rc, u16be(i))
 	}
 
 	new_sc := intersection_bitmap_with_run(dc, rc).(Sparse_Container)
@@ -584,11 +584,11 @@ test_intersection_run_with_run :: proc(t: ^testing.T) {
 	rc2 := run_container_init()
 	defer run_container_free(rc2)
 
-	set_run_list(&rc1, 0)
-	set_run_list(&rc1, 2)
-	set_run_list(&rc1, 4)
-	set_run_list(&rc2, 3)
-	set_run_list(&rc2, 4)
+	set_run_container(&rc1, 0)
+	set_run_container(&rc1, 2)
+	set_run_container(&rc1, 4)
+	set_run_container(&rc2, 3)
+	set_run_container(&rc2, 4)
 
 	new_sc, ok := intersection_run_with_run(rc1, rc2).(Sparse_Container)
 	defer sparse_container_free(new_sc)
@@ -606,17 +606,17 @@ test_union_array_with_run :: proc(t: ^testing.T) {
 	rc := run_container_init()
 	defer run_container_free(rc)
 
-	set_packed_array(&sc, 0)
-	set_packed_array(&sc, 2)
-	set_packed_array(&sc, 4)
-	set_run_list(&rc, 6)
-	set_run_list(&rc, 3)
-	set_run_list(&rc, 2)
+	set_sparse_container(&sc, 0)
+	set_sparse_container(&sc, 2)
+	set_sparse_container(&sc, 4)
+	set_run_container(&rc, 6)
+	set_run_container(&rc, 3)
+	set_run_container(&rc, 2)
 
 	// Set a lot of bits in the Run_Container so that we remain a Run_Container after
 	// the union operation is complete and we don't downgrade to a Sparse_Container.
 	for i in 150..<6000 {
-		set_run_list(&rc, u16be(i))
+		set_run_container(&rc, u16be(i))
 	}
 
 	new_rc, ok := union_array_with_run(sc, rc).(Run_Container)
@@ -639,12 +639,12 @@ test_union_bitmap_with_run :: proc(t: ^testing.T) {
 	rc := run_container_init()
 	defer run_container_free(rc)
 
-	set_bitmap(&dc, 0)
-	set_bitmap(&dc, 2)
-	set_bitmap(&dc, 4)
-	set_run_list(&rc, 2)
-	set_run_list(&rc, 3)
-	set_run_list(&rc, 6)
+	set_dense_container(&dc, 0)
+	set_dense_container(&dc, 2)
+	set_dense_container(&dc, 4)
+	set_run_container(&rc, 2)
+	set_run_container(&rc, 3)
+	set_run_container(&rc, 6)
 
 	new_dc := union_bitmap_with_run(dc, rc)
 	defer dense_container_free(new_dc)
@@ -666,14 +666,14 @@ test_union_bitmap_with_run :: proc(t: ^testing.T) {
 test_union_run_with_run :: proc(t: ^testing.T) {
 	rc1 := run_container_init()
 	defer run_container_free(rc1)
-	set_run_list(&rc1, 6)
-	set_run_list(&rc1, 3)
-	set_run_list(&rc1, 2)
+	set_run_container(&rc1, 6)
+	set_run_container(&rc1, 3)
+	set_run_container(&rc1, 2)
 
 	rc2 := run_container_init()
 	defer run_container_free(rc2)
-	set_run_list(&rc2, 0)
-	set_run_list(&rc2, 4)
+	set_run_container(&rc2, 0)
+	set_run_container(&rc2, 4)
 
 	// After running the union on two Run_Container, the result will be
 	// downgraded to a Sparse_Container (new cardinality is <= 4096).
