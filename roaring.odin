@@ -1,6 +1,7 @@
 package roaring
 
 import "base:builtin"
+import "base:intrinsics"
 import "core:fmt"
 import "core:math"
 import "core:mem"
@@ -152,7 +153,7 @@ container_cardinality :: proc(container: Container) -> (cardinality: int) {
 	case Dense_Container:
 		cardinality = c.cardinality
 	case Run_Container:
-		cardinality = run_container_cardinality(c)
+		cardinality = run_container_calculate_cardinality(c)
 	}
 	return cardinality
 }
@@ -693,7 +694,7 @@ roaring_union :: proc(
 		if k1 in rb2.index {
 			v2 := rb2.index[k1]
 
-			#partial switch c1 in v1 {
+			switch c1 in v1 {
 			case Sparse_Container:
 				switch c2 in v2 {
 				case Sparse_Container:
@@ -704,11 +705,18 @@ roaring_union :: proc(
 					rb.index[k1] = union_array_with_run(c1, c2, allocator)
 				}
 			case Dense_Container:
-				#partial switch c2 in v2 {
+				switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = union_array_with_bitmap(c2, c1, allocator)
 				case Dense_Container:
 					rb.index[k1] = union_bitmap_with_bitmap(c1, c2, allocator)
+				case Run_Container:
+					rb.index[k1] = union_bitmap_with_run(c1, c2, allocator)
+				}
+			case Run_Container:
+				#partial switch c2 in v2 {
+				case Sparse_Container:
+					rb.index[k1] = union_array_with_run(c2, c1, allocator)
 				}
 			}
 		}
@@ -1059,6 +1067,26 @@ intersection_bitmap_with_run :: proc(
 	}
 }
 
+// "The union between a run container and a bitmap container is computed by first
+// cloning the bitmap container. We then set to one all bits corresponding to the
+// integers in the run container, using fast bitwise OR operations (see again
+// Algorithm 3)."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
+union_bitmap_with_run :: proc(
+	dc: Dense_Container,
+	rc: Run_Container,
+	allocator := context.allocator,
+) -> Dense_Container {
+	new_dc := clone_container(dc).(Dense_Container)
+
+	for run in rc.run_list {
+		set_range_of_bits_in_dense_container(&new_dc, run.start, run.length)
+	}
+
+	new_dc.cardinality = dense_container_calculate_cardinality(new_dc)
+	return new_dc
+}
+
 // Sets a range of bits from 0 to 1 in a Dense_Container bitmap.
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
 set_range_of_bits_in_dense_container :: proc(dc: ^Dense_Container, start: int, length: int) {
@@ -1326,9 +1354,21 @@ run_end :: proc(run: Run) -> int {
 	return run.start + run.length
 }
 
+// Finds the cardinality of a Dense_Container by finding all the set bits.
+dense_container_calculate_cardinality :: proc(dc: Dense_Container) -> (acc: int) {
+	for byte in dc.bitmap {
+		if byte != 0 {
+			fmt.printf("{0:8b}\n", byte)
+			acc += intrinsics.count_ones(int(byte))
+		}
+	}
+
+	return acc
+}
+
 // Finds the cardinality of a Run_Container by summing the
 // length of each run.
-run_container_cardinality :: proc(rc: Run_Container) -> (acc: int) {
+run_container_calculate_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 	rl := rc.run_list
 
 	if len(rl) == 0 {
@@ -1375,21 +1415,32 @@ run_optimize :: proc(rb: Roaring_Bitmap) {
 main :: proc() {
 	fmt.println("Hello, world!")
 
-	sc1 := sparse_container_init()
-	defer sparse_container_free(sc1)
+	dc := dense_container_init()
+	defer dense_container_free(dc)
 
-	rc2 := run_container_init()
-	defer run_container_free(rc2)
+	set_bitmap(&dc, 0)
+	set_bitmap(&dc, 2)
+	set_bitmap(&dc, 4)
 
-	set_packed_array(&sc1, 0)
-	set_packed_array(&sc1, 2)
-	set_packed_array(&sc1, 4)
-	set_run_list(&rc2, 6)
-	set_run_list(&rc2, 3)
-	set_run_list(&rc2, 2)
-	// fmt.println(rc2)
+	// rc := run_container_init()
+	// defer run_container_free(rc)
 
-	x := union_array_with_run(sc1, rc2)
-	fmt.println(x)
+	// fmt.println(dense_container_calculate_cardinality(dc))
+	// set_run_list(&rc, 6)
+	// set_run_list(&rc, 3)
+	// set_run_list(&rc, 2)
+	// fmt.println(rc)
+	// new_dc := union_bitmap_with_run(dc, rc)
+	// // fmt.println(dense_container_calculate_cardinality(new_dc))
+
+	// fmt.println(is_set_bitmap(new_dc, 0))
+	// fmt.println(is_set_bitmap(new_dc, 1))
+	// fmt.println(is_set_bitmap(new_dc, 2))
+	// fmt.println(is_set_bitmap(new_dc, 3))
+	// fmt.println(is_set_bitmap(new_dc, 4))
+	// fmt.println(is_set_bitmap(new_dc, 5))
+	// fmt.println(is_set_bitmap(new_dc, 6))
+	// fmt.println(is_set_bitmap(new_dc, 7))
+	// fmt.println(is_set_bitmap(new_dc, 8))
 	// fmt.println(intersection_run_with_run(rc1, rc2))
 }

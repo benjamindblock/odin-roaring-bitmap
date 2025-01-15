@@ -161,7 +161,7 @@ test_converting_from_dense_to_run_container :: proc(t: ^testing.T) {
 	container = rb.index[0]
 	rc, rc_ok := container.(Run_Container)
 	testing.expect_value(t, rc_ok, true)
-	testing.expect_value(t, run_container_cardinality(rc), 5000)
+	testing.expect_value(t, run_container_calculate_cardinality(rc), 5000)
 
 	exp_run := Run{start=0, length=5000}
 	testing.expect_value(t, rc.run_list[0], exp_run)
@@ -181,7 +181,7 @@ test_converting_from_run_to_dense_container :: proc(t: ^testing.T) {
 	container := rb.index[0]
 	rc, rc_ok := container.(Run_Container)
 	testing.expect_value(t, rc_ok, true)
-	testing.expect_value(t, run_container_cardinality(rc), 6000)
+	testing.expect_value(t, run_container_calculate_cardinality(rc), 6000)
 	testing.expect_value(t, len(rc.run_list), 1)
 
 	for i in 0..=4094 {
@@ -674,4 +674,35 @@ test_union_array_with_run :: proc(t: ^testing.T) {
 	testing.expect_value(t, new_rc.run_list[0], Run{0, 1})
 	testing.expect_value(t, new_rc.run_list[1], Run{2, 3})
 	testing.expect_value(t, new_rc.run_list[2], Run{6, 1})
+}
+
+@(test)
+test_union_bitmap_with_run :: proc(t: ^testing.T) {
+	dc := dense_container_init()
+	defer dense_container_free(dc)
+
+	rc := run_container_init()
+	defer run_container_free(rc)
+
+	set_bitmap(&dc, 0)
+	set_bitmap(&dc, 2)
+	set_bitmap(&dc, 4)
+	set_run_list(&rc, 2)
+	set_run_list(&rc, 3)
+	set_run_list(&rc, 6)
+
+	new_dc := union_bitmap_with_run(dc, rc)
+	defer dense_container_free(new_dc)
+
+	testing.expect_value(t, new_dc.cardinality, 5)
+	testing.expect_value(t, is_set_bitmap(new_dc, 0), true)
+	testing.expect_value(t, is_set_bitmap(new_dc, 1), false)
+	testing.expect_value(t, is_set_bitmap(new_dc, 2), true)
+	testing.expect_value(t, is_set_bitmap(new_dc, 3), true)
+	testing.expect_value(t, is_set_bitmap(new_dc, 4), true)
+	testing.expect_value(t, is_set_bitmap(new_dc, 5), false)
+	testing.expect_value(t, is_set_bitmap(new_dc, 6), true)
+	testing.expect_value(t, is_set_bitmap(new_dc, 7), false)
+	testing.expect_value(t, is_set_bitmap(new_dc, 8), false)
+	testing.expect_value(t, is_set_bitmap(new_dc, 9), false)
 }
