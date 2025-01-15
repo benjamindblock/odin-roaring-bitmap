@@ -113,6 +113,34 @@ test_setting_values_for_run_container :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_setting_values_for_run_container_complex :: proc(t: ^testing.T) {
+	rc := run_container_init()
+	defer run_container_free(rc)
+
+	set_run_list(&rc, 3)
+	set_run_list(&rc, 4)
+	set_run_list(&rc, 0)
+	set_run_list(&rc, 2)
+
+	testing.expect_value(t, len(rc.run_list), 2)
+	testing.expect_value(t, rc.run_list[0], Run{0, 1})
+	testing.expect_value(t, rc.run_list[1], Run{2, 3})
+
+	set_run_list(&rc, 5)
+	testing.expect_value(t, len(rc.run_list), 2)
+	testing.expect_value(t, rc.run_list[0], Run{0, 1})
+	testing.expect_value(t, rc.run_list[1], Run{2, 4})
+
+	set_run_list(&rc, 1)
+	testing.expect_value(t, len(rc.run_list), 1)
+	testing.expect_value(t, rc.run_list[0], Run{0, 6})
+
+	unset_run_list(&rc, 1)
+	testing.expect_value(t, rc.run_list[0], Run{0, 1})
+	testing.expect_value(t, rc.run_list[1], Run{2, 4})
+}
+
+@(test)
 test_converting_from_dense_to_run_container :: proc(t: ^testing.T) {
 	rb := roaring_init()
 	defer roaring_free(&rb)
@@ -620,4 +648,30 @@ test_intersection_run_with_run :: proc(t: ^testing.T) {
 	testing.expect_value(t, container_cardinality(new_rc), 1)
 	testing.expect_value(t, len(new_rc.run_list), 1)
 	testing.expect_value(t, new_rc.run_list[0], Run{4, 1})
+}
+
+@(test)
+test_union_array_with_run :: proc(t: ^testing.T) {
+	sc := sparse_container_init()
+	defer sparse_container_free(sc)
+
+	rc := run_container_init()
+	defer run_container_free(rc)
+
+	set_packed_array(&sc, 0)
+	set_packed_array(&sc, 2)
+	set_packed_array(&sc, 4)
+	set_run_list(&rc, 6)
+	set_run_list(&rc, 3)
+	set_run_list(&rc, 2)
+
+	new_rc := union_array_with_run(sc, rc)
+	defer run_container_free(new_rc)
+
+
+	testing.expect_value(t, container_cardinality(new_rc), 5)
+	testing.expect_value(t, len(new_rc.run_list), 3)
+	testing.expect_value(t, new_rc.run_list[0], Run{0, 1})
+	testing.expect_value(t, new_rc.run_list[1], Run{2, 3})
+	testing.expect_value(t, new_rc.run_list[2], Run{6, 1})
 }

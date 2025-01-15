@@ -384,30 +384,56 @@ set_run_list :: proc(
 		return true, nil
 	}
 
-	run_to_check, index, _ := find_possible_run_by_value(rc.run_list, int(n))
-
-	// Lengthen a Run by having it start earlier.
-	if run_to_check.start - 1 == n {
-		run_to_check.start -= 1
-		run_to_check.length += 1
-
-	// Lengthen a Run by having it end later.
-	} else if run_end(run_to_check^) == n {
-		run_to_check.length += 1
-
-		// Merge with the next run if we need to.
-		if index + 1 < len(rc.run_list) {
-			next_run := rc.run_list[index+1]
-			if run_end(run_to_check^) == next_run.start {
-				run_to_check.length += next_run.length
-			}
-			ordered_remove(&rc.run_list, index + 1)
+	cmp := proc(r: Run, n: int) -> (res: slice.Ordering) {
+		if n >= (r.start - 1) && n <= run_end(r) {
+			res = .Equal
+		} else if n < r.start {
+			res = .Greater
+		} else if n > run_end(r) {
+			res = .Less
+		} else {
+			res = .Equal
 		}
 
-	// Create a new Run entirely.
+		return res
+	}
+
+	i, found := slice.binary_search_by(rc.run_list[:], n, cmp)
+
+	if found {
+		run_to_expand := &rc.run_list[i]
+
+		// Expand the matching Run backwards.
+		if run_to_expand.start - 1 == n {
+			run_to_expand.start -= 1
+			run_to_expand.length += 1
+
+			// Merge with the previous run if we need to.
+			if i - 1 >= 0 {
+				prev_run := rc.run_list[i-1]
+				if run_to_expand.start == run_end(prev_run) {
+					run_to_expand.length += prev_run.length
+					run_to_expand.start = prev_run.start
+					ordered_remove(&rc.run_list, i-1)
+				}
+			}
+
+		// Expand a Run forwards.
+		} else if run_end(run_to_expand^) == n {
+			run_to_expand.length += 1
+
+			// Merge with the next run if we need to.
+			if i + 1 < len(rc.run_list) {
+				next_run := rc.run_list[i+1]
+				if run_end(run_to_expand^) == next_run.start {
+					run_to_expand.length += next_run.length
+					ordered_remove(&rc.run_list, i+1)
+				}
+			}
+		}
 	} else {
 		new_run := Run{start=n, length=1}
-		inject_at(&rc.run_list, index + 1, new_run)
+		inject_at(&rc.run_list, i, new_run)
 	}
 
 	return true, nil
@@ -669,11 +695,13 @@ roaring_union :: proc(
 
 			#partial switch c1 in v1 {
 			case Sparse_Container:
-				#partial switch c2 in v2 {
+				switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = union_array_with_array(c1, c2, allocator)
 				case Dense_Container:
 					rb.index[k1] = union_array_with_bitmap(c1, c2, allocator)
+				case Run_Container:
+					rb.index[k1] = union_array_with_run(c1, c2, allocator)
 				}
 			case Dense_Container:
 				#partial switch c2 in v2 {
@@ -939,6 +967,31 @@ intersection_array_with_run :: proc(
 	}
 
 	return new_sc
+}
+
+// "We found that it is often better to predict that the outcome of the union is a
+// run container, and to convert the result to a bitmap container, if we must.
+// Thus, we follow the heuristic for the union between two run containers,
+// effectively treating the array container as a run container where all runs have
+// length one. However, once we have computed the union, we must not only check
+// whether to convert the result to a bitmap container, but also, possibly, to an
+// array container. This check is slightly more expensive, as we must compute the
+// cardinality of the result."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
+union_array_with_run :: proc(
+	sc: Sparse_Container,
+	rc: Run_Container,
+	allocator := context.allocator,
+) -> Run_Container {
+	new_rc := clone_container(rc).(Run_Container)
+
+	for v in sc.packed_array {
+		set_run_list(&new_rc, v)
+	}
+
+	// FIXME: Check whether or not we should downgrade to a bitmap.
+
+	return new_rc
 }
 
 // "The intersection between a run container and a bitmap container begins by
@@ -1322,19 +1375,21 @@ run_optimize :: proc(rb: Roaring_Bitmap) {
 main :: proc() {
 	fmt.println("Hello, world!")
 
-	rc1 := run_container_init()
-	defer run_container_free(rc1)
+	sc1 := sparse_container_init()
+	defer sparse_container_free(sc1)
 
 	rc2 := run_container_init()
 	defer run_container_free(rc2)
 
-	set_run_list(&rc1, 0)
-	set_run_list(&rc1, 2)
-	set_run_list(&rc1, 4)
+	set_packed_array(&sc1, 0)
+	set_packed_array(&sc1, 2)
+	set_packed_array(&sc1, 4)
+	set_run_list(&rc2, 6)
 	set_run_list(&rc2, 3)
-	set_run_list(&rc2, 4)
+	set_run_list(&rc2, 2)
+	// fmt.println(rc2)
 
-	x := intersection_run_with_run(rc1, rc2)
+	x := union_array_with_run(sc1, rc2)
 	fmt.println(x)
-	fmt.println(intersection_run_with_run(rc1, rc2))
+	// fmt.println(intersection_run_with_run(rc1, rc2))
 }
