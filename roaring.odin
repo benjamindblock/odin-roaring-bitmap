@@ -618,8 +618,8 @@ convert_container_dense_to_run :: proc(
 			continue
 		}
 
-		j := least_significant_bit_i(byte)
-		x := j + 8 * (i - 1)
+		j := intrinsics.count_trailing_zeros(byte)
+		x := int(j) + 8 * (i - 1)
 		byte = byte | (byte - 1)
 
 		for i + 1 <= len(dc.bitmap) && byte == 0b11111111 {
@@ -1403,16 +1403,6 @@ convert_container_optimal :: proc(container: Container, allocator := context.all
 	}
 
 	return optimal
-}
-
-least_significant_bit_i :: proc(byte: u8) -> int {
-	if byte == 0 {
-		return -1
-	}
-
-	isolated_byte := cast(f64be)(byte & -byte)
-	i := math.log2(isolated_byte)
-	return cast(int)i
 }
 
 // Ref: http://skalkoto.blogspot.com/2008/01/bit-operations-find-first-zero-bit.html
