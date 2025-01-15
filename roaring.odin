@@ -3,7 +3,6 @@ package roaring
 import "base:builtin"
 import "base:intrinsics"
 import "core:fmt"
-import "core:math"
 import "core:mem"
 import "core:slice"
 
@@ -631,7 +630,9 @@ convert_container_dense_to_run :: proc(
 		if byte == 0b11111111 {
 			y = 8 * i
 		} else {
-			k := least_significant_zero_bit_i(byte)
+			// Finds the index of the least significant zero bit.
+			// Ex. '00011011' => 2
+			k := intrinsics.count_trailing_zeros(int(~byte))
 			y = k + 8 * (i - 1)
 		}
 
@@ -1006,11 +1007,10 @@ intersection_array_with_run :: proc(
 	array_loop: for array_val in sc.packed_array {
 		run_loop: for {
 			run := rc.run_list[i]
-			if run_contains(run, int(array_val)) {
+			// If the run contains this array value, set it in the new array containing
+			// the intersection and continue at the outer loop with the next array value.
+			if int(array_val) >= run.start && int(array_val) < run_end(run) {
 				set_packed_array(&new_sc, array_val)
-
-				// If we found the array value, we can skip searching
-				// and start looking for the next value.
 				continue array_loop
 			} else {
 				i += 1
@@ -1405,33 +1405,20 @@ convert_container_optimal :: proc(container: Container, allocator := context.all
 	return optimal
 }
 
-// Ref: http://skalkoto.blogspot.com/2008/01/bit-operations-find-first-zero-bit.html
-// 1. Invert the number
-// 2. Compute the two's complement of the inverted number
-// 3. AND the results of (1) and (2)
-// 4. Find the position by computing the binary logarithm of (3)
-least_significant_zero_bit_i :: proc(byte: u8) -> int {
-	if byte == 0b11111111 {
-		return -1
-	}
-
-	inverted := ~byte
-	twos := byte + 1
-	anded := cast(f64be)(inverted & twos)
-	i := math.log2(anded)
-	return cast(int)i
-}
-
-// Calculates the end position of the given Run in the container.
+// Calculates the end position of the given Run in the container (exclusive).
 run_end :: proc(run: Run) -> int {
 	return run.start + run.length
+}
+
+// Finds the cardinality of a Sparse_Container.
+sparse_container_calculate_cardinality :: proc(sc: Sparse_Container) -> int {
+	return len(sc.packed_array)
 }
 
 // Finds the cardinality of a Dense_Container by finding all the set bits.
 dense_container_calculate_cardinality :: proc(dc: Dense_Container) -> (acc: int) {
 	for byte in dc.bitmap {
 		if byte != 0 {
-			fmt.printf("{0:8b}\n", byte)
 			acc += intrinsics.count_ones(int(byte))
 		}
 	}
@@ -1439,8 +1426,7 @@ dense_container_calculate_cardinality :: proc(dc: Dense_Container) -> (acc: int)
 	return acc
 }
 
-// Finds the cardinality of a Run_Container by summing the
-// length of each run.
+// Finds the cardinality of a Run_Container by summing the length of each run.
 run_container_calculate_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 	rl := rc.run_list
 
@@ -1453,12 +1439,6 @@ run_container_calculate_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 	}
 
 	return acc
-}
-
-run_contains :: proc(r: Run, n: int) -> bool {
-	start := r.start
-	end := (start + r.length) - 1
-	return n >= start && n <= end
 }
 
 // "Thus, when first creating a Roaring bitmap, it is usually made of array and

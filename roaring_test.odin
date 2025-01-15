@@ -428,21 +428,6 @@ test_should_convert_dense_container_to_run_container :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_least_significant_zero_bit_i :: proc(t: ^testing.T) {
-	n: u8 = 0b10110111
-	testing.expect_value(t, 3, least_significant_zero_bit_i(n))
-
-	n = 0b10111111
-	testing.expect_value(t, 6, least_significant_zero_bit_i(n))
-
-	n = 0b00000000
-	testing.expect_value(t, 0, least_significant_zero_bit_i(n))
-
-	n = 0b11111111
-	testing.expect_value(t, -1, least_significant_zero_bit_i(n))
-}
-
-@(test)
 test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
 	dc := dense_container_init()
 
