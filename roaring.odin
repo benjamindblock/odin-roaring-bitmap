@@ -354,6 +354,9 @@ is_set_bitmap :: proc(dc: Dense_Container, n: u16be) -> (found: bool) {
 }
 
 // Sets a value in a Run_List.
+//
+// TODO: Cleanup and unify with find_possible_run_by_value, which is used in
+// the unset_run_list and is_set_run_list methods.
 set_run_list :: proc(
 	rc: ^Run_Container,
 	n: u16be,
@@ -646,6 +649,7 @@ convert_container_dense_to_run :: proc(
 	return Run_Container{run_list}
 }
 
+// Clones any Container to a new version of itself.
 clone_container :: proc(
 	container: Container,
 	allocator := context.allocator,
@@ -1070,7 +1074,7 @@ intersection_bitmap_with_run :: proc(
 	if container_cardinality(rc) <= 4096 {
 		new_sc := sparse_container_init(allocator)
 		for run in rc.run_list {
-			for i := run.start; i < run.start + run.length; i += 1 {
+			for i := run.start; i < run_end(run); i += 1 {
 				if is_set_bitmap(dc, u16be(i)) {
 					set_packed_array(&new_sc, u16be(i))	
 				}
@@ -1094,7 +1098,7 @@ intersection_bitmap_with_run :: proc(
 
 		// Set any remaining bits after the last Run to be 0.
 		last_run := rc.run_list[len(rc.run_list) - 1]
-		unset_start := last_run.start + last_run.length + 1
+		unset_start := run_end(last_run) + 1
 		unset_length := (len(dc.bitmap) * 8) - unset_start
 		unset_range_of_bits_in_dense_container(&new_dc, unset_start, unset_length)
 
@@ -1263,14 +1267,14 @@ union_run_with_run :: proc(
 
 	// FIXME: Can any of this be optimized?
 	for run in rc1.run_list {
-		for i := run.start; i < run.start + run.length; i += 1 {
+		for i := run.start; i < run_end(run); i += 1 {
 			set_run_list(&new_rc, u16be(i))
 		}
 	}
 
 	// FIXME: Can any of this be optimized?
 	for run in rc2.run_list {
-		for i := run.start; i < run.start + run.length; i += 1 {
+		for i := run.start; i < run_end(run); i += 1 {
 			set_run_list(&new_rc, u16be(i))
 		}
 	}
@@ -1279,14 +1283,18 @@ union_run_with_run :: proc(
 	return convert_container_optimal(new_rc)
 }
 
+// Checks if two Run structs overlap at all.
 runs_overlap :: proc(r1: Run, r2: Run) -> bool {
 	start1 := r1.start
-	end1 := r1.start + r1.length - 1
 	start2 := r2.start
-	end2 := r2.start + r2.length - 1
-	return start1 <= end2 && start2 <= end1
+	end1 := run_end(r1)
+	end2 := run_end(r2)
+
+	return start1 < end2 && start2 < end1
 }
 
+// Finds the range (inclusive at both ends) that two Run
+// structs are overlapping at.
 run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: int, end: int) {
 	if !runs_overlap(r1, r2) {
 		return -1, -1
@@ -1304,13 +1312,15 @@ run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: int, end: int) {
 
 // Counts the no. of runs in a bitmap (eg., Dense_Container).
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 7, Algorithm 1)
-count_runs :: proc(dc: Dense_Container) -> (count: int) {
+dense_container_count_runs :: proc(dc: Dense_Container) -> (count: int) {
 	for i in 0..<(len(dc.bitmap) - 1) {
 		byte := dc.bitmap[i]
 		count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ dc.bitmap[i + 1])
 	}
-	// byte := dc.bitmap[len(dc.bitmap) - 1]
-	// count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7))
+
+	byte := dc.bitmap[len(dc.bitmap) - 1]
+	count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7))
+
 	return count
 }
 
@@ -1328,26 +1338,16 @@ count_runs :: proc(dc: Dense_Container) -> (count: int) {
 //
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 7)
 should_convert_container_dense_to_run :: proc(dc: Dense_Container) -> bool {
-	run_count: int
-	cardinality := dc.cardinality
-
-	for i in 0..<(len(dc.bitmap) - 1) {
-		byte := dc.bitmap[i]
-		run_count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ dc.bitmap[i + 1])
-		if run_count >= MAX_RUNS_PERMITTED {
-			return false
-		}
-	}
-
-	byte := dc.bitmap[len(dc.bitmap) - 1]
-	run_count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7))
+	run_count := dense_container_count_runs(dc)
 
 	// "If the run container has cardinality no more than 4096, then the number of
 	// runs must be less than half the cardinality."
 	// Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
-	return run_count < (cardinality / 2)
+	return run_count < (dc.cardinality / 2)
 }
 
+// Converts a given container into its optimal representation, using a
+// variety of heuristics.
 convert_container_optimal :: proc(container: Container, allocator := context.allocator) -> Container {
 	optimal: Container
 

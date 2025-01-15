@@ -194,7 +194,7 @@ test_converting_from_run_to_dense_container :: proc(t: ^testing.T) {
 	dc, dc_ok := container.(Dense_Container)
 	testing.expect_value(t, dc_ok, true)
 	testing.expect_value(t, dc.cardinality, 3952)
-	testing.expect_value(t, count_runs(dc), 2048)
+	testing.expect_value(t, dense_container_count_runs(dc), 2048)
 }
 
 @(test)
@@ -395,7 +395,7 @@ test_errors_thrown :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_count_runs :: proc(t: ^testing.T) {
+test_dense_container_count_runs :: proc(t: ^testing.T) {
 	rb := roaring_init()
 	defer roaring_free(&rb)
 
@@ -407,7 +407,7 @@ test_count_runs :: proc(t: ^testing.T) {
 
 	// Should have 5000 runs, each of length 1.
 	dc := rb.index[0].(Dense_Container)
-	runs := count_runs(dc)
+	runs := dense_container_count_runs(dc)
 	testing.expect_value(t, runs, 5000)
 }
 
