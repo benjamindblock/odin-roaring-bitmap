@@ -352,14 +352,6 @@ test_union_dense :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_bit_count :: proc(t: ^testing.T) {
-	testing.expect_value(t, bit_count(0), 0)
-	testing.expect_value(t, bit_count(1), 1)
-	testing.expect_value(t, bit_count(2), 1)
-	testing.expect_value(t, bit_count(3), 2)
-}
-
-@(test)
 test_errors_thrown :: proc(t: ^testing.T) {
 	rb := roaring_init()
 	defer roaring_free(&rb)
@@ -705,4 +697,32 @@ test_union_bitmap_with_run :: proc(t: ^testing.T) {
 	testing.expect_value(t, is_set_bitmap(new_dc, 7), false)
 	testing.expect_value(t, is_set_bitmap(new_dc, 8), false)
 	testing.expect_value(t, is_set_bitmap(new_dc, 9), false)
+}
+
+@(test)
+test_union_run_with_run :: proc(t: ^testing.T) {
+	rc1 := run_container_init()
+	defer run_container_free(rc1)
+	set_run_list(&rc1, 6)
+	set_run_list(&rc1, 3)
+	set_run_list(&rc1, 2)
+
+	rc2 := run_container_init()
+	defer run_container_free(rc2)
+	set_run_list(&rc2, 0)
+	set_run_list(&rc2, 4)
+
+	new_rc := union_run_with_run(rc1, rc2)
+	defer run_container_free(new_rc)
+
+	testing.expect_value(t, is_set_run_list(new_rc, 0), true)
+	testing.expect_value(t, is_set_run_list(new_rc, 1), false)
+	testing.expect_value(t, is_set_run_list(new_rc, 2), true)
+	testing.expect_value(t, is_set_run_list(new_rc, 3), true)
+	testing.expect_value(t, is_set_run_list(new_rc, 4), true)
+	testing.expect_value(t, is_set_run_list(new_rc, 5), false)
+	testing.expect_value(t, is_set_run_list(new_rc, 6), true)
+	testing.expect_value(t, is_set_run_list(new_rc, 7), false)
+	testing.expect_value(t, is_set_run_list(new_rc, 8), false)
+	testing.expect_value(t, is_set_run_list(new_rc, 9), false)
 }

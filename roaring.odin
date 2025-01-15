@@ -76,14 +76,14 @@ Roaring_Bitmap :: struct {
 // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
 // Maybe just use a 256 element lookup table for a u8 that gives exactly
 // the number of bits set for every possible byte.
-bit_count :: proc(n: int) -> (c: int) {
-	n := n
-	for n != 0 {
-		c += n & 1
-		n >>= 1
-	}
-	return c
-}
+// bit_count :: proc(n: int) -> (c: int) {
+// 	n := n
+// 	for n != 0 {
+// 		c += n & 1
+// 		n >>= 1
+// 	}
+// 	return c
+// }
 
 roaring_init :: proc(allocator := context.allocator) -> Roaring_Bitmap {
 	index := make(Container_Index)
@@ -714,9 +714,13 @@ roaring_union :: proc(
 					rb.index[k1] = union_bitmap_with_run(c1, c2, allocator)
 				}
 			case Run_Container:
-				#partial switch c2 in v2 {
+				switch c2 in v2 {
 				case Sparse_Container:
 					rb.index[k1] = union_array_with_run(c2, c1, allocator)
+				case Dense_Container:
+					rb.index[k1] = union_bitmap_with_run(c2, c1, allocator)
+				case Run_Container:
+					rb.index[k1] = union_run_with_run(c1, c2, allocator)
 				}
 			}
 		}
@@ -882,7 +886,7 @@ intersection_bitmap_with_bitmap :: proc(
 	for byte1, i in dc1.bitmap {
 		byte2 := dc2.bitmap[i]
 		res := byte1 & byte2
-		count += bit_count(int(res))
+		count += intrinsics.count_ones(int(res))
 	}
 
 	if count > 4096 {
@@ -891,7 +895,7 @@ intersection_bitmap_with_bitmap :: proc(
 			byte2 := dc2.bitmap[i]
 			res := byte1 & byte2
 			dc.bitmap[i] = res
-			dc.cardinality += bit_count(int(res))
+			dc.cardinality += intrinsics.count_ones(int(res))
 		}
 		return dc
 	} else {
@@ -925,7 +929,7 @@ union_bitmap_with_bitmap :: proc(
 	for byte, i in dc1.bitmap {
 		res := byte | dc2.bitmap[i]
 		dc.bitmap[i] = res
-		dc.cardinality = bit_count(int(res))
+		dc.cardinality = intrinsics.count_ones(int(res))
 	}
 	return dc
 }
@@ -1054,7 +1058,7 @@ intersection_bitmap_with_run :: proc(
 		// Determine the cardinality.
 		acc := 0
 		for byte in new_dc.bitmap {
-			acc += bit_count(int(byte))
+			acc += intrinsics.count_ones(int(byte))
 		}
 		new_dc.cardinality = acc
 
@@ -1077,7 +1081,7 @@ union_bitmap_with_run :: proc(
 	rc: Run_Container,
 	allocator := context.allocator,
 ) -> Dense_Container {
-	new_dc := clone_container(dc).(Dense_Container)
+	new_dc := clone_container(dc, allocator).(Dense_Container)
 
 	for run in rc.run_list {
 		set_range_of_bits_in_dense_container(&new_dc, run.start, run.length)
@@ -1197,6 +1201,47 @@ intersection_run_with_run :: proc(
 	return new_rc
 }
 
+// "The union algorithm is also conceptually simple. We create a new, initially
+// empty, run container that has its capacity set to the sum of the number of runs
+// in both input containers. We iterate over the runs, starting from the first run
+// in each container. Each time, we pick a run that has a minimal starting point.
+// We append it to the output either as a new run, or as an extension of the
+// previous run. We then advance in the container where we picked the run. Once a
+// container has no more runs, all runs remaining in the other container are
+// appended to the answer. After we have computed the resulting run container, we
+// convert the run container into a bitmap container if too many runs were
+// created. Checking whether such a conversion is needed is fast, since it can be
+// decided only by checking the number of runs. There is no need to consider
+// conversion to an array container, because every run present in the original
+// inputs is either present in its entirety, or as part of an even larger run.
+// Thus the average run length (essentially our criterion for conversion) is at
+// least as large as in the input run containers."
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
+union_run_with_run :: proc(
+	rc1: Run_Container,
+	rc2: Run_Container,
+	allocator := context.allocator,
+) -> Run_Container {
+	new_rc := run_container_init(allocator)
+
+	for run in rc1.run_list {
+		for i := run.start; i < run.start + run.length; i += 1 {
+			set_run_list(&new_rc, u16be(i))
+		}
+	}
+
+	for run in rc2.run_list {
+		for i := run.start; i < run.start + run.length; i += 1 {
+			set_run_list(&new_rc, u16be(i))
+		}
+	}
+
+	// FIXME: Can the above be optimized?
+	// FIXME: Convert to the correct type here.
+
+	return new_rc
+}
+
 runs_overlap :: proc(r1: Run, r2: Run) -> bool {
 	start1 := r1.start
 	end1 := r1.start + r1.length - 1
@@ -1225,10 +1270,10 @@ run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: int, end: int) {
 count_runs :: proc(dc: Dense_Container) -> (count: int) {
 	for i in 0..<(len(dc.bitmap) - 1) {
 		byte := dc.bitmap[i]
-		count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ dc.bitmap[i + 1])
+		count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ dc.bitmap[i + 1])
 	}
 	// byte := dc.bitmap[len(dc.bitmap) - 1]
-	// count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7))
+	// count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7))
 	return count
 }
 
@@ -1257,14 +1302,14 @@ should_convert_to_run_container :: proc(container: Container) -> bool {
 
 		for i in 0..<(len(c.bitmap) - 1) {
 			byte := c.bitmap[i]
-			run_count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ c.bitmap[i + 1])
+			run_count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ c.bitmap[i + 1])
 			if run_count >= MAX_RUNS_PERMITTED {
 				return false
 			}
 		}
 
 		byte := c.bitmap[len(c.bitmap) - 1]
-		run_count += bit_count(int(byte << 1) &~ int(byte)) + int((byte >> 7))
+		run_count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7))
 	case Run_Container:
 		return false
 	}
@@ -1415,22 +1460,19 @@ run_optimize :: proc(rb: Roaring_Bitmap) {
 main :: proc() {
 	fmt.println("Hello, world!")
 
-	dc := dense_container_init()
-	defer dense_container_free(dc)
+	rc1 := run_container_init()
+	defer run_container_free(rc1)
+	set_run_list(&rc1, 6)
+	set_run_list(&rc1, 3)
+	set_run_list(&rc1, 2)
 
-	set_bitmap(&dc, 0)
-	set_bitmap(&dc, 2)
-	set_bitmap(&dc, 4)
+	rc2 := run_container_init()
+	defer run_container_free(rc2)
+	set_run_list(&rc2, 0)
+	set_run_list(&rc2, 4)
 
-	// rc := run_container_init()
-	// defer run_container_free(rc)
-
-	// fmt.println(dense_container_calculate_cardinality(dc))
-	// set_run_list(&rc, 6)
-	// set_run_list(&rc, 3)
-	// set_run_list(&rc, 2)
-	// fmt.println(rc)
-	// new_dc := union_bitmap_with_run(dc, rc)
+	new_rc := union_run_with_run(rc1, rc2)
+	fmt.println(new_rc)
 	// // fmt.println(dense_container_calculate_cardinality(new_dc))
 
 	// fmt.println(is_set_bitmap(new_dc, 0))
