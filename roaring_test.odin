@@ -155,9 +155,9 @@ test_converting_from_dense_to_run_container :: proc(t: ^testing.T) {
 	dc, dc_ok := container.(Dense_Container)
 	testing.expect_value(t, dc_ok, true)
 	testing.expect_value(t, dc.cardinality, 5000)
-	testing.expect_value(t, should_convert_to_run_container(dc), true)
+	testing.expect_value(t, should_convert_container_dense_to_run(dc), true)
 
-	run_optimize(rb)
+	run_optimize(&rb)
 	container = rb.index[0]
 	rc, rc_ok := container.(Run_Container)
 	testing.expect_value(t, rc_ok, true)
@@ -176,7 +176,7 @@ test_converting_from_run_to_dense_container :: proc(t: ^testing.T) {
 	for i in 0..<6000 {
 		roaring_set(&rb, u32be(i))
 	}
-	run_optimize(rb)
+	run_optimize(&rb)
 
 	container := rb.index[0]
 	rc, rc_ok := container.(Run_Container)
@@ -412,7 +412,7 @@ test_count_runs :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_should_convert_to_run_container :: proc(t: ^testing.T) {
+test_should_convert_dense_container_to_run_container :: proc(t: ^testing.T) {
 	rb := roaring_init()
 	defer roaring_free(&rb)
 
@@ -420,23 +420,11 @@ test_should_convert_to_run_container :: proc(t: ^testing.T) {
 		roaring_set(&rb, u32be(i))
 	}
 
-	should := should_convert_to_run_container(rb.index[0])
+	dc, ok := rb.index[0].(Dense_Container)
+	testing.expect_value(t, ok, true)
+
+	should := should_convert_container_dense_to_run(dc)
 	testing.expect_value(t, should, true)
-}
-
-@(test)
-test_should_not_convert_to_run_container :: proc(t: ^testing.T) {
-	rb := roaring_init()
-	defer roaring_free(&rb)
-
-	for i in 0..<5000 {
-		if i % 2 == 0 {
-			roaring_set(&rb, u32be(i))
-		}
-	}
-
-	should := should_convert_to_run_container(rb.index[0])
-	testing.expect_value(t, should, false)
 }
 
 @(test)
@@ -471,52 +459,50 @@ test_least_significant_zero_bit_i :: proc(t: ^testing.T) {
 
 @(test)
 test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
-	rb := roaring_init()
-	defer roaring_free(&rb)
+	dc := dense_container_init()
 
-	roaring_set(&rb, 1)
-	roaring_set(&rb, 2)
+	set_bitmap(&dc, 1)
+	set_bitmap(&dc, 2)
 
-	roaring_set(&rb, 4)
-	roaring_set(&rb, 5)
-	roaring_set(&rb, 6)
-	roaring_set(&rb, 7)
-	roaring_set(&rb, 8)
-	roaring_set(&rb, 9)
+	set_bitmap(&dc, 4)
+	set_bitmap(&dc, 5)
+	set_bitmap(&dc, 6)
+	set_bitmap(&dc, 7)
+	set_bitmap(&dc, 8)
+	set_bitmap(&dc, 9)
 
 	for i in 12..<10000 {
 		if i % 2 == 0 {
-			roaring_set(&rb, u32be(i))
+			set_bitmap(&dc, u16be(i))
 		}
 	}
 
-	run_list := convert_bitmap_to_run_list(rb.index[0].(Dense_Container))
-	defer delete(run_list)
+	rc := convert_container_dense_to_run(dc)
+	defer run_container_free(rc)
 	exp_run: Run
 
 	exp_run = Run{start=1, length=2}
-	testing.expect_value(t, run_list[0], exp_run)
+	testing.expect_value(t, rc.run_list[0], exp_run)
 
 	exp_run = Run{start=4, length=6}
-	testing.expect_value(t, run_list[1], exp_run)
+	testing.expect_value(t, rc.run_list[1], exp_run)
 
 	exp_run = Run{start=12, length=1}
-	testing.expect_value(t, run_list[2], exp_run)
+	testing.expect_value(t, rc.run_list[2], exp_run)
 }
 
 @(test)
 test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
 	dc := dense_container_init()
-	defer dense_container_free(dc)
 
 	set_bitmap(&dc, 0)
 	testing.expect_value(t, is_set_bitmap(dc, 0), true)
 
-	run_list := convert_bitmap_to_run_list(dc)
-	defer delete(run_list)
+	rc := convert_container_dense_to_run(dc)
+	defer run_container_free(rc)
 
 	exp_run := Run{start=0, length=1}
-	testing.expect_value(t, run_list[0], exp_run)
+	testing.expect_value(t, rc.run_list[0], exp_run)
 }
 
 @(test)
@@ -634,12 +620,12 @@ test_intersection_run_with_run :: proc(t: ^testing.T) {
 	set_run_list(&rc2, 3)
 	set_run_list(&rc2, 4)
 
-	new_rc := intersection_run_with_run(rc1, rc2).(Run_Container)
-	defer run_container_free(new_rc)
+	new_sc, ok := intersection_run_with_run(rc1, rc2).(Sparse_Container)
+	defer sparse_container_free(new_sc)
 
-	testing.expect_value(t, container_cardinality(new_rc), 1)
-	testing.expect_value(t, len(new_rc.run_list), 1)
-	testing.expect_value(t, new_rc.run_list[0], Run{4, 1})
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, new_sc.cardinality, 1)
+	testing.expect_value(t, new_sc.packed_array[0], 4)
 }
 
 @(test)
@@ -657,15 +643,22 @@ test_union_array_with_run :: proc(t: ^testing.T) {
 	set_run_list(&rc, 3)
 	set_run_list(&rc, 2)
 
-	new_rc := union_array_with_run(sc, rc)
+	// Set a lot of bits in the Run_Container so that we remain a Run_Container after
+	// the union operation is complete and we don't downgrade to a Sparse_Container.
+	for i in 150..<6000 {
+		set_run_list(&rc, u16be(i))
+	}
+
+	new_rc, ok := union_array_with_run(sc, rc).(Run_Container)
 	defer run_container_free(new_rc)
 
-
-	testing.expect_value(t, container_cardinality(new_rc), 5)
-	testing.expect_value(t, len(new_rc.run_list), 3)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, container_cardinality(new_rc), 5855)
+	testing.expect_value(t, len(new_rc.run_list), 4)
 	testing.expect_value(t, new_rc.run_list[0], Run{0, 1})
 	testing.expect_value(t, new_rc.run_list[1], Run{2, 3})
 	testing.expect_value(t, new_rc.run_list[2], Run{6, 1})
+	testing.expect_value(t, new_rc.run_list[3], Run{150, 5850})
 }
 
 @(test)
@@ -712,17 +705,20 @@ test_union_run_with_run :: proc(t: ^testing.T) {
 	set_run_list(&rc2, 0)
 	set_run_list(&rc2, 4)
 
-	new_rc := union_run_with_run(rc1, rc2)
-	defer run_container_free(new_rc)
+	// After running the union on two Run_Container, the result will be
+	// downgraded to a Sparse_Container (new cardinality is <= 4096).
+	sc, ok := union_run_with_run(rc1, rc2).(Sparse_Container)
+	defer sparse_container_free(sc)
 
-	testing.expect_value(t, is_set_run_list(new_rc, 0), true)
-	testing.expect_value(t, is_set_run_list(new_rc, 1), false)
-	testing.expect_value(t, is_set_run_list(new_rc, 2), true)
-	testing.expect_value(t, is_set_run_list(new_rc, 3), true)
-	testing.expect_value(t, is_set_run_list(new_rc, 4), true)
-	testing.expect_value(t, is_set_run_list(new_rc, 5), false)
-	testing.expect_value(t, is_set_run_list(new_rc, 6), true)
-	testing.expect_value(t, is_set_run_list(new_rc, 7), false)
-	testing.expect_value(t, is_set_run_list(new_rc, 8), false)
-	testing.expect_value(t, is_set_run_list(new_rc, 9), false)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, is_set_packed_array(sc, 0), true)
+	testing.expect_value(t, is_set_packed_array(sc, 1), false)
+	testing.expect_value(t, is_set_packed_array(sc, 2), true)
+	testing.expect_value(t, is_set_packed_array(sc, 3), true)
+	testing.expect_value(t, is_set_packed_array(sc, 4), true)
+	testing.expect_value(t, is_set_packed_array(sc, 5), false)
+	testing.expect_value(t, is_set_packed_array(sc, 6), true)
+	testing.expect_value(t, is_set_packed_array(sc, 7), false)
+	testing.expect_value(t, is_set_packed_array(sc, 8), false)
+	testing.expect_value(t, is_set_packed_array(sc, 9), false)
 }

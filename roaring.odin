@@ -71,20 +71,6 @@ Roaring_Bitmap :: struct {
 	allocator: mem.Allocator,
 }
 
-// Counts the number of set bits in an integer.
-// FIXME: Can be optimized:
-// http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
-// Maybe just use a 256 element lookup table for a u8 that gives exactly
-// the number of bits set for every possible byte.
-// bit_count :: proc(n: int) -> (c: int) {
-// 	n := n
-// 	for n != 0 {
-// 		c += n & 1
-// 		n >>= 1
-// 	}
-// 	return c
-// }
-
 roaring_init :: proc(allocator := context.allocator) -> Roaring_Bitmap {
 	index := make(Container_Index)
 	return Roaring_Bitmap{index=index, allocator=allocator}
@@ -178,7 +164,7 @@ roaring_set :: proc(
 		// If an array container has 4,096 integers, first convert it to a
 		// Dense_Container and then set the bit.
 		if c.cardinality == 4096 {
-			rb.index[i] = convert_container_from_sparse_to_dense(c)
+			rb.index[i] = convert_container_sparse_to_dense(c, rb.allocator)
 			return roaring_set(rb, n)
 		} else {
 			set_packed_array(&c, j) or_return
@@ -210,12 +196,12 @@ roaring_unset :: proc(
 	case Dense_Container:
 		unset_bitmap(&c, j) or_return
 		if c.cardinality <= 4096 {
-			rb.index[i] = convert_container_from_dense_to_sparse(c, rb.allocator)
+			rb.index[i] = convert_container_dense_to_sparse(c, rb.allocator)
 		}
 	case Run_Container:
 		unset_run_list(&c, j) or_return
 		if len(c.run_list) >= MAX_RUNS_PERMITTED {
-			rb.index[i] = convert_container_from_run_to_dense(c, rb.allocator)
+			rb.index[i] = convert_container_run_to_dense(c, rb.allocator)
 		}
 	}
 
@@ -537,7 +523,7 @@ is_set_run_list :: proc(rc: Run_Container, n: u16be) -> bool {
 }
 
 // Sparse_Container => Dense_Container
-convert_container_from_sparse_to_dense :: proc(
+convert_container_sparse_to_dense :: proc(
 	sc: Sparse_Container,
 	allocator := context.allocator,
 ) -> Dense_Container {
@@ -552,7 +538,7 @@ convert_container_from_sparse_to_dense :: proc(
 }
 
 // Dense_Container => Sparse_Container
-convert_container_from_dense_to_sparse :: proc(
+convert_container_dense_to_sparse :: proc(
 	dc: Dense_Container,
 	allocator := context.allocator,
 ) -> Sparse_Container {
@@ -573,7 +559,7 @@ convert_container_from_dense_to_sparse :: proc(
 }
 
 // Run_Container => Dense_Container
-convert_container_from_run_to_dense :: proc(
+convert_container_run_to_dense :: proc(
 	rc: Run_Container,
 	allocator := context.allocator,
 ) -> Dense_Container {
@@ -591,13 +577,72 @@ convert_container_from_run_to_dense :: proc(
 	return dc
 }
 
+// Run_Container => Sparse_Container
+convert_container_run_to_sparse :: proc(
+	rc: Run_Container,
+	allocator := context.allocator,
+) -> Sparse_Container {
+	sc := sparse_container_init(allocator)
+
+	for run in rc.run_list {
+		start := run.start
+		for i := 0; i < run.length; i += 1 {
+			v := u16be(start + i)
+			set_packed_array(&sc, v)
+		}
+	}
+
+	run_container_free(rc)
+	return sc
+}
+
 // Dense_Container => Run_Container
-convert_container_from_dense_to_run :: proc(
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 8)
+convert_container_dense_to_run :: proc(
 	dc: Dense_Container,
 	allocator := context.allocator
 ) -> Run_Container {
-	rl := convert_bitmap_to_run_list(dc, allocator)
-	return Run_Container{rl}
+	run_list := make(Run_List, allocator)
+
+	i := 1
+	byte := dc.bitmap[i-1]
+	for i <= len(dc.bitmap) {
+		if byte == 0b00000000 {
+			i += 1
+
+			if i > len(dc.bitmap) {
+				break
+			}
+
+			byte = dc.bitmap[i-1]
+			continue
+		}
+
+		j := least_significant_bit_i(byte)
+		x := j + 8 * (i - 1)
+		byte = byte | (byte - 1)
+
+		for i + 1 <= len(dc.bitmap) && byte == 0b11111111 {
+			i += 1
+			byte = dc.bitmap[i-1]
+		}
+
+		y: int
+		if byte == 0b11111111 {
+			y = 8 * i
+		} else {
+			k := least_significant_zero_bit_i(byte)
+			y = k + 8 * (i - 1)
+		}
+
+		run := Run{start=x, length=(y - x)}
+		append(&run_list, run)
+
+		byte = byte & (byte + 1)
+	}
+
+	dense_container_free(dc)
+	return Run_Container{run_list}
 }
 
 clone_container :: proc(
@@ -994,16 +1039,14 @@ union_array_with_run :: proc(
 	sc: Sparse_Container,
 	rc: Run_Container,
 	allocator := context.allocator,
-) -> Run_Container {
+) -> Container {
 	new_rc := clone_container(rc).(Run_Container)
 
 	for v in sc.packed_array {
 		set_run_list(&new_rc, v)
 	}
 
-	// FIXME: Check whether or not we should downgrade to a bitmap.
-
-	return new_rc
+	return convert_container_optimal(new_rc)
 }
 
 // "The intersection between a run container and a bitmap container begins by
@@ -1064,7 +1107,7 @@ intersection_bitmap_with_run :: proc(
 
 		// Convert down to a Sparse_Container if needed.
 		if new_dc.cardinality <= 4096 {
-			return convert_container_from_dense_to_sparse(new_dc, allocator)
+			return convert_container_dense_to_sparse(new_dc, allocator)
 		} else {
 			return new_dc
 		}
@@ -1192,13 +1235,7 @@ intersection_run_with_run :: proc(
 		}
 	}
 
-	// FIXME: Convert to the proper container type here at the end depending
-	// on the number of runs and the cardinality.
-	//
-	// FIXME: Make a generalized method that performs the optimal conversion of
-	// one container type to another that can be called.
-
-	return new_rc
+	return convert_container_optimal(new_rc)
 }
 
 // "The union algorithm is also conceptually simple. We create a new, initially
@@ -1221,25 +1258,25 @@ union_run_with_run :: proc(
 	rc1: Run_Container,
 	rc2: Run_Container,
 	allocator := context.allocator,
-) -> Run_Container {
+) -> Container {
 	new_rc := run_container_init(allocator)
 
+	// FIXME: Can any of this be optimized?
 	for run in rc1.run_list {
 		for i := run.start; i < run.start + run.length; i += 1 {
 			set_run_list(&new_rc, u16be(i))
 		}
 	}
 
+	// FIXME: Can any of this be optimized?
 	for run in rc2.run_list {
 		for i := run.start; i < run.start + run.length; i += 1 {
 			set_run_list(&new_rc, u16be(i))
 		}
 	}
 
-	// FIXME: Can the above be optimized?
-	// FIXME: Convert to the correct type here.
 
-	return new_rc
+	return convert_container_optimal(new_rc)
 }
 
 runs_overlap :: proc(r1: Run, r2: Run) -> bool {
@@ -1290,34 +1327,82 @@ count_runs :: proc(dc: Dense_Container) -> (count: int) {
 // is less than 2048."
 //
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 7)
-should_convert_to_run_container :: proc(container: Container) -> bool {
+should_convert_container_dense_to_run :: proc(dc: Dense_Container) -> bool {
 	run_count: int
-	cardinality: int
+	cardinality := dc.cardinality
 
-	switch c in container {
-	case Sparse_Container:
-		return false
-	case Dense_Container:
-		cardinality = c.cardinality
-
-		for i in 0..<(len(c.bitmap) - 1) {
-			byte := c.bitmap[i]
-			run_count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ c.bitmap[i + 1])
-			if run_count >= MAX_RUNS_PERMITTED {
-				return false
-			}
+	for i in 0..<(len(dc.bitmap) - 1) {
+		byte := dc.bitmap[i]
+		run_count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ dc.bitmap[i + 1])
+		if run_count >= MAX_RUNS_PERMITTED {
+			return false
 		}
-
-		byte := c.bitmap[len(c.bitmap) - 1]
-		run_count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7))
-	case Run_Container:
-		return false
 	}
+
+	byte := dc.bitmap[len(dc.bitmap) - 1]
+	run_count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7))
 
 	// "If the run container has cardinality no more than 4096, then the number of
 	// runs must be less than half the cardinality."
 	// Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
 	return run_count < (cardinality / 2)
+}
+
+convert_container_optimal :: proc(container: Container, allocator := context.allocator) -> Container {
+	optimal: Container
+
+	switch c in container {
+	case Sparse_Container:
+		if len(c.packed_array) <= 4096 {
+			optimal = c
+		}
+
+		dc := convert_container_sparse_to_dense(c, allocator)
+		if should_convert_container_dense_to_run(dc) {
+			optimal = convert_container_dense_to_run(dc, allocator)
+		} else {
+			optimal = dc
+		}
+	case Dense_Container:
+		if c.cardinality <= 4096 {
+			optimal = convert_container_dense_to_sparse(c, allocator)	
+		}
+
+		if should_convert_container_dense_to_run(c) {
+			optimal = convert_container_dense_to_run(c, allocator)
+		} else {
+			optimal = c
+		}
+	case Run_Container:
+		cardinality := run_container_calculate_cardinality(c)
+
+		// "If the run container has cardinality greater than 4096 values, then it
+		// must contain no more than ⌈(8192 − 2)/4⌉ = 2047 runs."
+		// Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
+		if cardinality > 4096 {
+			if len(c.run_list) <= 2047 {
+				optimal = c
+			} else {
+				optimal = convert_container_run_to_dense(c)
+			}
+
+		// "If the run container has cardinality no more than 4096, then the number
+		// of runs must be less than half the cardinality."
+		// Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
+		//
+		// If the number of runs is *more* than half the cardinality, we can create
+		// a Sparse_Container, because we know that there are less than 4096 value
+		// and thus the packed array will be more efficient than a bitmap or run list.
+		} else {
+			if len(c.run_list) < (cardinality / 2) {
+				optimal = c
+			} else {
+				optimal = convert_container_run_to_sparse(c)
+			}
+		}
+	}
+
+	return optimal
 }
 
 least_significant_bit_i :: proc(byte: u8) -> int {
@@ -1345,53 +1430,6 @@ least_significant_zero_bit_i :: proc(byte: u8) -> int {
 	anded := cast(f64be)(inverted & twos)
 	i := math.log2(anded)
 	return cast(int)i
-}
-
-// Ref: https://arxiv.org/pdf/1603.06549 (Page 8)
-convert_bitmap_to_run_list :: proc(
-	dc: Dense_Container,
-	allocator := context.allocator
-) -> Run_List {
-	run_list := make(Run_List, allocator)
-
-	i := 1
-	byte := dc.bitmap[i-1]
-	for i <= len(dc.bitmap) {
-		if byte == 0b00000000 {
-			i += 1
-
-			if i > len(dc.bitmap) {
-				break
-			}
-
-			byte = dc.bitmap[i-1]
-			continue
-		}
-
-		j := least_significant_bit_i(byte)
-		x := j + 8 * (i - 1)
-		byte = byte | (byte - 1)
-
-		for i + 1 <= len(dc.bitmap) && byte == 0b11111111 {
-			i += 1
-			byte = dc.bitmap[i-1]
-		}
-
-		y: int
-		if byte == 0b11111111 {
-			y = 8 * i
-		} else {
-			k := least_significant_zero_bit_i(byte)
-			y = k + 8 * (i - 1)
-		}
-
-		run := Run{start=x, length=(y - x)}
-		append(&run_list, run)
-
-		byte = byte & (byte + 1)
-	}
-
-	return run_list
 }
 
 // Calculates the end position of the given Run in the container.
@@ -1441,48 +1479,13 @@ run_contains :: proc(r: Run, n: int) -> bool {
 // bitmaps as immutable objects to be queried. Run containers may also arise from
 // calling a function to add a range of values."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
-run_optimize :: proc(rb: Roaring_Bitmap) {
-	for key, container in rb.index {
-		switch c in container {
-		case Dense_Container:
-			if should_convert_to_run_container(c) {
-				index := rb.index
-				index[key] = convert_container_from_dense_to_run(c, rb.allocator)
-				dense_container_free(c)
-			}
-		// Do nothing for these cases, only Dense_Container can be converted to
-		// Run_Container.
-		case Sparse_Container, Run_Container:
-		}
+run_optimize :: proc(rb: ^Roaring_Bitmap) {
+	index := &rb.index
+	for key, container in index {
+		index[key] = convert_container_optimal(container)
 	}
 }
 
 main :: proc() {
 	fmt.println("Hello, world!")
-
-	rc1 := run_container_init()
-	defer run_container_free(rc1)
-	set_run_list(&rc1, 6)
-	set_run_list(&rc1, 3)
-	set_run_list(&rc1, 2)
-
-	rc2 := run_container_init()
-	defer run_container_free(rc2)
-	set_run_list(&rc2, 0)
-	set_run_list(&rc2, 4)
-
-	new_rc := union_run_with_run(rc1, rc2)
-	fmt.println(new_rc)
-	// // fmt.println(dense_container_calculate_cardinality(new_dc))
-
-	// fmt.println(is_set_bitmap(new_dc, 0))
-	// fmt.println(is_set_bitmap(new_dc, 1))
-	// fmt.println(is_set_bitmap(new_dc, 2))
-	// fmt.println(is_set_bitmap(new_dc, 3))
-	// fmt.println(is_set_bitmap(new_dc, 4))
-	// fmt.println(is_set_bitmap(new_dc, 5))
-	// fmt.println(is_set_bitmap(new_dc, 6))
-	// fmt.println(is_set_bitmap(new_dc, 7))
-	// fmt.println(is_set_bitmap(new_dc, 8))
-	// fmt.println(intersection_run_with_run(rc1, rc2))
 }
