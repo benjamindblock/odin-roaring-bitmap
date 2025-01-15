@@ -6,14 +6,8 @@ import "core:fmt"
 import "core:mem"
 import "core:slice"
 
-MAX_RUNS_PERMITTED :: 2048
-
-Run :: struct {
-	start: int,
-	length: int,
-}
-
-Run_List :: distinct [dynamic]Run
+MAX_RUNS_PERMITTED :: 2047
+MAX_ARRAY_LENGTH :: 4096
 
 Roaring_Error :: union {
 	Already_Set_Error,
@@ -53,6 +47,13 @@ Bitmap_Container :: struct {
 // of the runs. In most applications, we expect the number of runs to be often
 // small: the computation of the cardinality should not be a bottleneck."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
+Run :: struct {
+	start: int,
+	length: int,
+}
+
+Run_List :: distinct [dynamic]Run
+
 Run_Container :: struct {
 	run_list: Run_List,
 }
@@ -115,7 +116,7 @@ roaring_set :: proc(
 	case Array_Container:
 		// If an array container has 4,096 integers, first convert it to a
 		// Bitmap_Container and then set the bit.
-		if c.cardinality == 4096 {
+		if c.cardinality == MAX_ARRAY_LENGTH {
 			rb.index[i] = convert_container_array_to_bitmap(c, rb.allocator)
 			return roaring_set(rb, n)
 		} else {
@@ -148,12 +149,12 @@ roaring_unset :: proc(
 		unset_packed_array(&c, j) or_return
 	case Bitmap_Container:
 		unset_bitmap(&c, j) or_return
-		if c.cardinality <= 4096 {
+		if c.cardinality <= MAX_ARRAY_LENGTH {
 			rb.index[i] = convert_container_bitmap_to_array(c, rb.allocator)
 		}
 	case Run_Container:
 		unset_run_container(&c, j) or_return
-		if len(c.run_list) >= MAX_RUNS_PERMITTED {
+		if len(c.run_list) > MAX_RUNS_PERMITTED {
 			rb.index[i] = convert_container_run_to_bitmap(c, rb.allocator)
 		}
 	}
@@ -862,7 +863,7 @@ union_array_with_array :: proc(
 	ac2: Array_Container,
 	allocator := context.allocator,
 ) -> Container {
-	if (ac1.cardinality + ac2.cardinality) <= 4096 {
+	if (ac1.cardinality + ac2.cardinality) <= MAX_ARRAY_LENGTH {
 		ac := array_container_init(allocator)
 		for v in ac1.packed_array {
 			set_array_container(&ac, v)
@@ -944,7 +945,7 @@ intersection_bitmap_with_bitmap :: proc(
 		count += intrinsics.count_ones(int(res))
 	}
 
-	if count > 4096 {
+	if count > MAX_ARRAY_LENGTH {
 		bc := bitmap_container_init(allocator)
 		for byte1, i in bc1.bitmap {
 			byte2 := bc2.bitmap[i]
@@ -1076,7 +1077,7 @@ intersection_bitmap_with_run :: proc(
 	rc: Run_Container,
 	allocator := context.allocator,
 ) -> Container {
-	if container_cardinality(rc) <= 4096 {
+	if container_cardinality(rc) <= MAX_ARRAY_LENGTH {
 		nc_ac := array_container_init(allocator)
 		for run in rc.run_list {
 			for i := run.start; i < run_end(run); i += 1 {
@@ -1115,7 +1116,7 @@ intersection_bitmap_with_run :: proc(
 		new_bc.cardinality = acc
 
 		// Convert down to a Array_Container if needed.
-		if new_bc.cardinality <= 4096 {
+		if new_bc.cardinality <= MAX_ARRAY_LENGTH {
 			return convert_container_bitmap_to_array(new_bc, allocator)
 		} else {
 			return new_bc
@@ -1358,7 +1359,7 @@ convert_container_optimal :: proc(container: Container, allocator := context.all
 
 	switch c in container {
 	case Array_Container:
-		if len(c.packed_array) <= 4096 {
+		if len(c.packed_array) <= MAX_ARRAY_LENGTH {
 			optimal = c
 		}
 
@@ -1369,7 +1370,7 @@ convert_container_optimal :: proc(container: Container, allocator := context.all
 			optimal = bc
 		}
 	case Bitmap_Container:
-		if c.cardinality <= 4096 {
+		if c.cardinality <= MAX_ARRAY_LENGTH {
 			optimal = convert_container_bitmap_to_array(c, allocator)	
 		}
 
@@ -1384,8 +1385,8 @@ convert_container_optimal :: proc(container: Container, allocator := context.all
 		// "If the run container has cardinality greater than 4096 values, then it
 		// must contain no more than ⌈(8192 − 2)/4⌉ = 2047 runs."
 		// Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
-		if cardinality > 4096 {
-			if len(c.run_list) <= 2047 {
+		if cardinality > MAX_ARRAY_LENGTH {
+			if len(c.run_list) <= MAX_RUNS_PERMITTED {
 				optimal = c
 			} else {
 				optimal = convert_container_run_to_bitmap(c)
