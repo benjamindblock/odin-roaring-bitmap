@@ -104,6 +104,7 @@ roaring_bitmap_clone :: proc(
 }
 
 // Removes a container and its position in the index from the Roaring_Bitmap.
+@(private)
 roaring_bitmap_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	container := rb.index[i]
 	switch c in container {
@@ -117,8 +118,13 @@ roaring_bitmap_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	delete_key(&rb.index, i)
 }
 
-// If a container doesn’t already exist then create a new array container,
-// add it to the Roaring bitmap’s first-level index, and add N to the array.
+// Adds a value to the Roaring_Bitmap. If a container doesn’t already exist
+// for the value, then create a new array container and add it to the index
+// before setting the value.
+//
+// This method does not care if that value is already set or not, it will
+// set the value anyways. If you *do* care, use `strict_add` to fail when
+// a value is already set in the Roaring_Bitmap.
 add :: proc(
 	rb: ^Roaring_Bitmap,
 	n: int,
@@ -161,6 +167,8 @@ strict_add :: proc(rb: ^Roaring_Bitmap, n: int) -> (ok: bool, err: Roaring_Error
 	return add(rb, n)
 }
 
+// Removes a value from the Roaring_Bitmap. This method not care if that value is
+// actually set or not. Use `strict_remove` you do care and want to fail.
 remove :: proc(
 	rb: ^Roaring_Bitmap,
 	n: int,
@@ -341,6 +349,7 @@ least_significant :: proc(n: u32be) -> u16be {
 	return slice.to_type(as_bytes[2:4], u16be)
 }
 
+@(private)
 array_container_add :: proc(
 	ac: ^Array_Container,
 	n: u16be,
@@ -356,6 +365,7 @@ array_container_add :: proc(
 	}
 }
 
+@(private)
 array_container_remove :: proc(
 	ac: ^Array_Container,
 	n: u16be,
@@ -371,11 +381,13 @@ array_container_remove :: proc(
 	}
 }
 
+@(private)
 array_container_contains :: proc(ac: Array_Container, n: u16be) -> (found: bool) {
 	_, found = slice.binary_search(ac.packed_array[:], n)		
 	return found
 }
 
+@(private)
 bitmap_container_add :: proc(
 	bc: ^Bitmap_Container,
 	n: u16be,
@@ -394,6 +406,7 @@ bitmap_container_add :: proc(
 	return true, nil
 }
 
+@(private)
 bitmap_container_remove :: proc(
 	bc: ^Bitmap_Container,
 	n: u16be,
@@ -413,6 +426,7 @@ bitmap_container_remove :: proc(
 	return true, nil
 }
 
+@(private)
 bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16be) -> (found: bool) {
 	bitmap := bc.bitmap
 
@@ -433,6 +447,7 @@ bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16be) -> (found: boo
 //
 // TODO: Cleanup and unify with find_possible_run_by_value, which is used in
 // the run_container_remove and run_container_contains methods.
+@(private)
 run_container_add :: proc(
 	rc: ^Run_Container,
 	n: u16be,
@@ -502,6 +517,7 @@ run_container_add :: proc(
 
 // Finds the Run that might contain a given value and returns a pointer to it
 // for modification.
+@(private)
 find_possible_run_by_value :: proc(rl: Run_List, n: int) -> (run: ^Run, index: int, exact_match: bool) {
 	if len(rl) == 0 {
 		return run, -1, false
@@ -538,6 +554,7 @@ find_possible_run_by_value :: proc(rl: Run_List, n: int) -> (run: ^Run, index: i
 // 2. Value at beginning of run -- increment start by 1 and decrease length by 1
 // 3. Value at end of run -- decrease length by 1
 // 4. Value in middle of run -- split Run into two Runs
+@(private)
 run_container_remove :: proc(
 	rc: ^Run_Container,
 	n: u16be,
@@ -575,6 +592,7 @@ run_container_remove :: proc(
 }
 
 // Checks to see if a value is set in a Run_Container.
+@(private)
 run_container_contains :: proc(rc: Run_Container, n: u16be) -> bool {
 	if len(rc.run_list) == 0 {
 		return false
@@ -593,6 +611,7 @@ run_container_contains :: proc(rc: Run_Container, n: u16be) -> bool {
 }
 
 // Array_Container => Bitmap_Container
+@(private)
 convert_container_array_to_bitmap :: proc(
 	ac: Array_Container,
 	allocator := context.allocator,
@@ -608,6 +627,7 @@ convert_container_array_to_bitmap :: proc(
 }
 
 // Bitmap_Container => Array_Container
+@(private)
 convert_container_bitmap_to_array :: proc(
 	bc: Bitmap_Container,
 	allocator := context.allocator,
@@ -629,6 +649,7 @@ convert_container_bitmap_to_array :: proc(
 }
 
 // Run_Container => Bitmap_Container
+@(private)
 convert_container_run_to_bitmap :: proc(
 	rc: Run_Container,
 	allocator := context.allocator,
@@ -648,6 +669,7 @@ convert_container_run_to_bitmap :: proc(
 }
 
 // Run_Container => Array_Container
+@(private)
 convert_container_run_to_array :: proc(
 	rc: Run_Container,
 	allocator := context.allocator,
@@ -668,6 +690,7 @@ convert_container_run_to_array :: proc(
 
 // Bitmap_Container => Run_Container
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 8)
+@(private)
 convert_container_bitmap_to_run :: proc(
 	bc: Bitmap_Container,
 	allocator := context.allocator
@@ -718,6 +741,7 @@ convert_container_bitmap_to_run :: proc(
 }
 
 // Clones any Container to a new version of itself.
+@(private)
 container_clone :: proc(
 	container: Container,
 	allocator := context.allocator,
@@ -861,6 +885,7 @@ roaring_union :: proc(
 // galloping intersection with complexity O(min(c1, c2) log max(c1, c2)). We
 // arrived at this threshold (c1/64 < c2 < 64c1) empirically as a reasonable
 // choice, but it has not been finely tuned.
+@(private)
 intersection_array_with_array :: proc(
 	ac1: Array_Container,
 	ac2: Array_Container,
@@ -915,6 +940,7 @@ intersection_array_with_array :: proc(
 // values of both arrays, we set the corresponding bits in the bitmap to 1. Using
 // the bitCount function, we compute cardinality, and then convert the bitmap into
 // an array container if the cardinality is at most 4096.
+@(private)
 union_array_with_array :: proc(
 	ac1: Array_Container,
 	ac2: Array_Container,
@@ -952,6 +978,7 @@ union_array_with_array :: proc(
 // quickly: we iterate over the values in the array container, checking the
 // presence of each 16-bit integer in the bitmap container and generating a new
 // array container that has as much capacity as the input array container.
+@(private)
 intersection_array_with_bitmap :: proc(
 	ac: Array_Container,
 	bc: Bitmap_Container,
@@ -968,6 +995,7 @@ intersection_array_with_bitmap :: proc(
 
 // Unions are also efficient: we create a copy of the bitmap and iterate over the
 // array, setting the corresponding bits.
+@(private)
 union_array_with_bitmap :: proc(
 	ac: Array_Container,
 	bc: Bitmap_Container,
@@ -992,6 +1020,7 @@ union_array_with_bitmap :: proc(
 // the words and storing them in a new bitmap container. Otherwise, we generate a
 // new array container by, once again, recomputing the bitwise ANDs, and iterating
 // over their 1-bits.
+@(private)
 intersection_bitmap_with_bitmap :: proc(
 	bc1: Bitmap_Container,
 	bc2: Bitmap_Container,
@@ -1037,6 +1066,7 @@ intersection_bitmap_with_bitmap :: proc(
 // each container, so 1024 bitwise OR operations are needed. At the same time, we
 // compute the cardinality of the result using the bitCount function on the
 // generated words.
+@(private)
 union_bitmap_with_bitmap :: proc(
 	bc1: Bitmap_Container,
 	bc2: Bitmap_Container,
@@ -1063,6 +1093,7 @@ union_bitmap_with_bitmap :: proc(
 // the run overlaps the array value, the array value is included in the
 // intersection, otherwise it is omitted."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
+@(private)
 intersection_array_with_run :: proc(
 	ac: Array_Container,
 	rc: Run_Container,
@@ -1106,6 +1137,7 @@ intersection_array_with_run :: proc(
 // array container. This check is slightly more expensive, as we must compute the
 // cardinality of the result."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
+@(private)
 union_array_with_run :: proc(
 	ac: Array_Container,
 	rc: Run_Container,
@@ -1134,6 +1166,7 @@ union_array_with_run :: proc(
 // Algorithm 3). We then check the cardinality of the result, converting to an
 // array container if needed."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 10, 11)
+@(private)
 intersection_bitmap_with_run :: proc(
 	bc: Bitmap_Container,
 	rc: Run_Container,
@@ -1192,6 +1225,7 @@ intersection_bitmap_with_run :: proc(
 // integers in the run container, using fast bitwise OR operations (see again
 // Algorithm 3)."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
+@(private)
 union_bitmap_with_run :: proc(
 	bc: Bitmap_Container,
 	rc: Run_Container,
@@ -1210,6 +1244,7 @@ union_bitmap_with_run :: proc(
 
 // Sets a range of bits from 0 to 1 in a Bitmap_Container bitmap.
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
+@(private)
 set_range_of_bits_in_bitmap_container :: proc(bc: ^Bitmap_Container, start: int, length: int) {
 	end := start + length
 
@@ -1233,6 +1268,7 @@ set_range_of_bits_in_bitmap_container :: proc(bc: ^Bitmap_Container, start: int,
 
 // Sets a range of bits from 1 to 0 in a Bitmap_Container bitmap.
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
+@(private)
 unset_range_of_bits_in_bitmap_container :: proc(bc: ^Bitmap_Container, start: int, length: int) {
 	end := start + length
 
@@ -1269,6 +1305,7 @@ unset_range_of_bits_in_bitmap_container :: proc(bc: ^Bitmap_Container, start: in
 // to an array container (if its cardinality is too small compared to the number
 // of runs)."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
+@(private)
 intersection_run_with_run :: proc(
 	rc1: Run_Container,
 	rc2: Run_Container,
@@ -1330,6 +1367,7 @@ intersection_run_with_run :: proc(
 // Thus the average run length (essentially our criterion for conversion) is at
 // least as large as in the input run containers."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 10)
+@(private)
 union_run_with_run :: proc(
 	rc1: Run_Container,
 	rc2: Run_Container,
@@ -1358,6 +1396,7 @@ union_run_with_run :: proc(
 }
 
 // Checks if two Run structs overlap at all.
+@(private)
 runs_overlap :: proc(r1: Run, r2: Run) -> bool {
 	start1 := r1.start
 	start2 := r2.start
@@ -1369,6 +1408,7 @@ runs_overlap :: proc(r1: Run, r2: Run) -> bool {
 
 // Finds the range (inclusive at both ends) that two Run
 // structs are overlapping at.
+@(private)
 run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: int, end: int) {
 	if !runs_overlap(r1, r2) {
 		return -1, -1
@@ -1386,6 +1426,7 @@ run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: int, end: int) {
 
 // Counts the no. of runs in a bitmap (eg., Bitmap_Container).
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 7, Algorithm 1)
+@(private)
 bitmap_container_count_runs :: proc(bc: Bitmap_Container) -> (count: int) {
 	for i in 0..<(len(bc.bitmap) - 1) {
 		byte := bc.bitmap[i]
@@ -1411,6 +1452,7 @@ bitmap_container_count_runs :: proc(bc: Bitmap_Container) -> (count: int) {
 // is less than 2048."
 //
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 7)
+@(private)
 should_convert_container_bitmap_to_run :: proc(bc: Bitmap_Container) -> bool {
 	run_count := bitmap_container_count_runs(bc)
 
@@ -1422,6 +1464,7 @@ should_convert_container_bitmap_to_run :: proc(bc: Bitmap_Container) -> bool {
 
 // Converts a given container into its optimal representation, using a
 // variety of heuristics.
+@(private)
 convert_container_optimal :: proc(
 	container: Container,
 	allocator := context.allocator
@@ -1481,16 +1524,19 @@ convert_container_optimal :: proc(
 }
 
 // Finds the end position of the given Run in the container (exclusive).
+@(private)
 run_end_position :: proc(run: Run) -> int {
 	return run.start + run.length
 }
 
 // Finds the cardinality of a Array_Container.
+@(private)
 array_container_calculate_cardinality :: proc(ac: Array_Container) -> int {
 	return len(ac.packed_array)
 }
 
 // Finds the cardinality of a Bitmap_Container by finding all the set bits.
+@(private)
 bitmap_container_calculate_cardinality :: proc(bc: Bitmap_Container) -> (acc: int) {
 	for byte in bc.bitmap {
 		if byte != 0 {
@@ -1502,6 +1548,7 @@ bitmap_container_calculate_cardinality :: proc(bc: Bitmap_Container) -> (acc: in
 }
 
 // Finds the cardinality of a Run_Container by summing the length of each run.
+@(private)
 run_container_calculate_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 	rl := rc.run_list
 
