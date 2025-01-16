@@ -74,10 +74,15 @@ Container :: union {
 	Run_Container,
 }
 
-Container_Index :: distinct map[u16be]Container
+// Sorted index to the map.
+Container_Index :: distinct [dynamic]u16be
+
+// Repository of every container.
+Container_Map :: distinct map[u16be]Container
 
 Roaring_Bitmap :: struct {
-	index: Container_Index,
+	cindex: Container_Index,
+	containers: Container_Map,
 	allocator: mem.Allocator,
 }
 
@@ -93,7 +98,7 @@ Roaring_Bitmap_Iterator :: struct {
 }
 
 make_iterator :: proc(rb: ^Roaring_Bitmap) -> (it: Roaring_Bitmap_Iterator, err: runtime.Allocator_Error) {
-	container_keys := slice.map_keys(rb.index, rb.allocator) or_return
+	container_keys := slice.map_keys(rb.containers, rb.allocator) or_return
 	slice.sort(container_keys[:])
 
 	it.rb = rb
@@ -123,7 +128,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 
 		// Get the current container
 		key := it.container_keys[it.container_idx]
-		container := it.rb.index[key]
+		container := it.rb.containers[key]
 
 		switch c in container {
 		// In an Array_Container:
@@ -224,20 +229,32 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 roaring_bitmap_init :: proc(
 	allocator := context.allocator
 ) -> (rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
-	index: Container_Index
-	index, err = make(Container_Index, 0, allocator)
+	cindex: Container_Index
+	cindex, err = make(Container_Index, 0, allocator)
 	if err != runtime.Allocator_Error.None {
 		return rb, err
 	}
 
-	return Roaring_Bitmap{index=index, allocator=allocator}, nil
+	containers: Container_Map
+	containers, err = make(Container_Map, 0, allocator)
+	if err != runtime.Allocator_Error.None {
+		return rb, err
+	}
+
+	rb = Roaring_Bitmap{
+		cindex = cindex,
+		containers=containers,
+		allocator=allocator,
+	}
+	return rb, nil
 }
 
 roaring_bitmap_free :: proc(rb: ^Roaring_Bitmap) {
-	for i, _ in rb.index {
+	for i, _ in rb.containers {
 		roaring_bitmap_free_at(rb, i)
 	}
-	delete(rb.index)
+	delete(rb.containers)
+	delete(rb.cindex)
 }
 
 roaring_bitmap_clone :: proc(
@@ -245,16 +262,36 @@ roaring_bitmap_clone :: proc(
 	allocator := context.allocator
 ) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
 	new_rb = roaring_bitmap_init(allocator) or_return
-	for key, container in rb.index {
-		new_rb.index[key] = container_clone(container, allocator) or_return
+	for key, container in rb.containers {
+		new_rb.containers[key] = container_clone(container, allocator) or_return
+		roaring_bitmap_add_to_cindex(&new_rb, key)
 	}
 	return new_rb, nil
+}
+
+roaring_bitmap_remove_from_cindex :: proc(rb: ^Roaring_Bitmap, n: u16be) {
+	i, found := slice.binary_search(rb.cindex[:], n)
+	if !found {
+		return
+	}
+	ordered_remove(&rb.cindex, i)
+}
+
+roaring_bitmap_add_to_cindex :: proc(rb: ^Roaring_Bitmap, n: u16be) -> (ok: bool, err: runtime.Allocator_Error) {
+	i, found := slice.binary_search(rb.cindex[:], n)
+	if found {
+		return true, nil
+	}
+	inject_at(&rb.cindex, i, n) or_return
+
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
+	return true, nil
 }
 
 // Removes a container and its position in the index from the Roaring_Bitmap.
 @(private)
 roaring_bitmap_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
-	container := rb.index[i]
+	container := rb.containers[i]
 	switch c in container {
 	case Array_Container:
 		array_container_free(c)
@@ -263,7 +300,10 @@ roaring_bitmap_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	case Run_Container:
 		run_container_free(c)
 	}
-	delete_key(&rb.index, i)
+	delete_key(&rb.containers, i)
+	roaring_bitmap_remove_from_cindex(rb, i)
+
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 }
 
 // Adds a value to the Roaring_Bitmap. If a container doesn’t already exist
@@ -281,18 +321,19 @@ add :: proc(
 	i := most_significant(n_be)
 	j := least_significant(n_be)
 
-	if !(i in rb.index) {
-		rb.index[i] = array_container_init(rb.allocator) or_return
+	if !(i in rb.containers) {
+		rb.containers[i] = array_container_init(rb.allocator) or_return
+		roaring_bitmap_add_to_cindex(rb, i)
 		return add(rb, n)
 	}
 
-	container := &rb.index[i]
+	container := &rb.containers[i]
 	switch &c in container {
 	case Array_Container:
 		// If an array container has 4,096 integers, first convert it to a
 		// Bitmap_Container and then set the bit.
 		if c.cardinality == MAX_ARRAY_LENGTH {
-			rb.index[i] = convert_container_array_to_bitmap(c, rb.allocator) or_return
+			rb.containers[i] = convert_container_array_to_bitmap(c, rb.allocator) or_return
 			return add(rb, n)
 		} else {
 			array_container_add(&c, j) or_return
@@ -302,6 +343,8 @@ add :: proc(
 	case Run_Container:
 		run_container_add(&c, j) or_return
 	}
+
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 
 	return true, nil
 }
@@ -325,32 +368,34 @@ remove :: proc(
 	i := most_significant(n_be)
 	j := least_significant(n_be)
 
-	if !(i in rb.index) {
+	if !(i in rb.containers) {
 		return true, nil
 	}
 
-	container := &rb.index[i]
+	container := &rb.containers[i]
 	switch &c in container {
 	case Array_Container:
 		array_container_remove(&c, j) or_return
 	case Bitmap_Container:
 		bitmap_container_remove(&c, j) or_return
 		if c.cardinality <= MAX_ARRAY_LENGTH {
-			rb.index[i] = convert_container_bitmap_to_array(c, rb.allocator) or_return
+			rb.containers[i] = convert_container_bitmap_to_array(c, rb.allocator) or_return
 		}
 	case Run_Container:
 		run_container_remove(&c, j) or_return
 		if len(c.run_list) > MAX_RUNS_PERMITTED {
-			rb.index[i] = convert_container_run_to_bitmap(c, rb.allocator) or_return
+			rb.containers[i] = convert_container_run_to_bitmap(c, rb.allocator) or_return
 		}
 	}
 
 	// If we have removed the last element(s) in a container, remove the
 	// container + key.
-	container = &rb.index[i]
+	container = &rb.containers[i]
 	if container_get_cardinality(container^) == 0 {
 		roaring_bitmap_free_at(rb, i)
 	}
+
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 
 	return true, nil
 }
@@ -412,11 +457,11 @@ contains :: proc(rb: Roaring_Bitmap, n: int) -> (found: bool) {
 	i := most_significant(n)
 	j := least_significant(n)
 
-	if !(i in rb.index) {
+	if !(i in rb.containers) {
 		return false
 	}
 
-	container := rb.index[i]
+	container := rb.containers[i]
 	switch c in container {
 	case Array_Container:
 		found = array_container_contains(c, j)
@@ -429,7 +474,7 @@ contains :: proc(rb: Roaring_Bitmap, n: int) -> (found: bool) {
 	return found
 }
 
-@(require_results)
+@(private, require_results)
 array_container_init :: proc(
 	allocator := context.allocator
 ) -> (Array_Container, runtime.Allocator_Error) {
@@ -441,11 +486,12 @@ array_container_init :: proc(
 	return ac, err
 }
 
+@(private)
 array_container_free :: proc(ac: Array_Container) {
 	delete(ac.packed_array)
 }
 
-@(require_results)
+@(private, require_results)
 bitmap_container_init :: proc(
 	allocator := context.allocator
 ) -> (Bitmap_Container, runtime.Allocator_Error) {
@@ -461,7 +507,7 @@ bitmap_container_free :: proc(bc: Bitmap_Container) {
 	delete(bc.bitmap)
 }
 
-@(require_results)
+@(private, require_results)
 run_container_init :: proc(
 	allocator := context.allocator
 ) -> (Run_Container, runtime.Allocator_Error) {
@@ -471,10 +517,12 @@ run_container_init :: proc(
 	return rc, err
 }
 
+@(private)
 run_container_free :: proc(rc: Run_Container) {
 	delete(rc.run_list)
 }
 
+@(private)
 container_get_cardinality :: proc(container: Container) -> (cardinality: int) {
 	switch c in container {
 	case Array_Container:
@@ -931,39 +979,41 @@ roaring_intersection :: proc(
 ) -> (rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
 	rb = roaring_bitmap_init(allocator) or_return
 
-	for k1, v1 in rb1.index {
-		if k1 in rb2.index {
-			v2 := rb2.index[k1]
+	for k1, v1 in rb1.containers {
+		if k1 in rb2.containers {
+			v2 := rb2.containers[k1]
 
 			switch c1 in v1 {
 			case Array_Container:
 				switch c2 in v2 {
 				case Array_Container:
-					rb.index[k1] = intersection_array_with_array(c1, c2, allocator) or_return
+					rb.containers[k1] = intersection_array_with_array(c1, c2, allocator) or_return
 				case Bitmap_Container:
-					rb.index[k1] = intersection_array_with_bitmap(c1, c2, allocator) or_return
+					rb.containers[k1] = intersection_array_with_bitmap(c1, c2, allocator) or_return
 				case Run_Container:
-					rb.index[k1] = intersection_array_with_run(c1, c2, allocator) or_return
+					rb.containers[k1] = intersection_array_with_run(c1, c2, allocator) or_return
 				}
 			case Bitmap_Container:
 				switch c2 in v2 {
 				case Array_Container:
-					rb.index[k1] = intersection_array_with_bitmap(c2, c1, allocator) or_return
+					rb.containers[k1] = intersection_array_with_bitmap(c2, c1, allocator) or_return
 				case Bitmap_Container:
-					rb.index[k1] = intersection_bitmap_with_bitmap(c1, c2, allocator) or_return
+					rb.containers[k1] = intersection_bitmap_with_bitmap(c1, c2, allocator) or_return
 				case Run_Container:
-					rb.index[k1] = intersection_bitmap_with_run(c1, c2, allocator) or_return
+					rb.containers[k1] = intersection_bitmap_with_run(c1, c2, allocator) or_return
 				}
 			case Run_Container:
 				switch c2 in v2 {
 				case Array_Container:
-					rb.index[k1] = intersection_array_with_run(c2, c1, allocator) or_return
+					rb.containers[k1] = intersection_array_with_run(c2, c1, allocator) or_return
 				case Bitmap_Container:
-					rb.index[k1] = intersection_bitmap_with_run(c2, c1, allocator) or_return
+					rb.containers[k1] = intersection_bitmap_with_run(c2, c1, allocator) or_return
 				case Run_Container:
-					rb.index[k1] = intersection_run_with_run(c1, c2, allocator) or_return
+					rb.containers[k1] = intersection_run_with_run(c1, c2, allocator) or_return
 				}
 			}
+
+			roaring_bitmap_add_to_cindex(&rb, k1)
 		}
 	}
 
@@ -978,53 +1028,57 @@ roaring_union :: proc(
 ) -> (rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
 	rb = roaring_bitmap_init(allocator) or_return
 
-	for k1, v1 in rb1.index {
+	for k1, v1 in rb1.containers {
 		// If the container in the first Roaring_Bitmap does not exist in the second,
 		// then just copy that container to the new, unioned bitmap.
-		if !(k1 in rb2.index) {
-			rb.index[k1] = container_clone(v1, allocator) or_return
+		if !(k1 in rb2.containers) {
+			rb.containers[k1] = container_clone(v1, allocator) or_return
+			roaring_bitmap_add_to_cindex(&rb, k1)
 		}
 
-		if k1 in rb2.index {
-			v2 := rb2.index[k1]
+		if k1 in rb2.containers {
+			v2 := rb2.containers[k1]
 
 			switch c1 in v1 {
 			case Array_Container:
 				switch c2 in v2 {
 				case Array_Container:
-					rb.index[k1] = union_array_with_array(c1, c2, allocator) or_return
+					rb.containers[k1] = union_array_with_array(c1, c2, allocator) or_return
 				case Bitmap_Container:
-					rb.index[k1] = union_array_with_bitmap(c1, c2, allocator) or_return
+					rb.containers[k1] = union_array_with_bitmap(c1, c2, allocator) or_return
 				case Run_Container:
-					rb.index[k1] = union_array_with_run(c1, c2, allocator) or_return
+					rb.containers[k1] = union_array_with_run(c1, c2, allocator) or_return
 				}
 			case Bitmap_Container:
 				switch c2 in v2 {
 				case Array_Container:
-					rb.index[k1] = union_array_with_bitmap(c2, c1, allocator) or_return
+					rb.containers[k1] = union_array_with_bitmap(c2, c1, allocator) or_return
 				case Bitmap_Container:
-					rb.index[k1] = union_bitmap_with_bitmap(c1, c2, allocator) or_return
+					rb.containers[k1] = union_bitmap_with_bitmap(c1, c2, allocator) or_return
 				case Run_Container:
-					rb.index[k1] = union_bitmap_with_run(c1, c2, allocator) or_return
+					rb.containers[k1] = union_bitmap_with_run(c1, c2, allocator) or_return
 				}
 			case Run_Container:
 				switch c2 in v2 {
 				case Array_Container:
-					rb.index[k1] = union_array_with_run(c2, c1, allocator) or_return
+					rb.containers[k1] = union_array_with_run(c2, c1, allocator) or_return
 				case Bitmap_Container:
-					rb.index[k1] = union_bitmap_with_run(c2, c1, allocator) or_return
+					rb.containers[k1] = union_bitmap_with_run(c2, c1, allocator) or_return
 				case Run_Container:
-					rb.index[k1] = union_run_with_run(c1, c2, allocator) or_return
+					rb.containers[k1] = union_run_with_run(c1, c2, allocator) or_return
 				}
 			}
 		}
+
+		roaring_bitmap_add_to_cindex(&rb, k1)
 	}
 
 	// Lastly, add any containers in the second Roaring_Bitmap that were
 	// not present in the first.
-	for k2, v2 in rb2.index {
-		if !(k2 in rb1.index) {
-			rb.index[k2] = container_clone(v2, allocator) or_return
+	for k2, v2 in rb2.containers {
+		if !(k2 in rb1.containers) {
+			rb.containers[k2] = container_clone(v2, allocator) or_return
+			roaring_bitmap_add_to_cindex(&rb, k2)
 		}
 	}
 
@@ -1685,7 +1739,7 @@ run_end_position :: proc(run: Run) -> int {
 
 // Returns the overall cardinality for the Roaring_Bitmap.
 get_cardinality :: proc(rb: Roaring_Bitmap) -> (cardinality: int) {
-	for _, container in rb.index {
+	for _, container in rb.containers {
 		cardinality += container_get_cardinality(container)
 	}
 	return cardinality
@@ -1734,9 +1788,9 @@ run_container_calculate_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 // calling a function to add a range of values."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
 optimize :: proc(rb: ^Roaring_Bitmap) -> (err: runtime.Allocator_Error) {
-	index := &rb.index
-	for key, container in index {
-		index[key] = convert_container_optimal(container, rb.allocator) or_return
+	containers := &rb.containers
+	for key, container in containers {
+		containers[key] = convert_container_optimal(container, rb.allocator) or_return
 	}
 
 	return nil

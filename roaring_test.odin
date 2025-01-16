@@ -84,7 +84,7 @@ test_setting_values_works_for_array :: proc(t: ^testing.T) {
 	key: u16be
 	count := 0
 	container: Container
-	for k, v in rb.index {
+	for k, v in rb.containers {
 		key = k
 		count += 1
 		container = v
@@ -98,7 +98,7 @@ test_setting_values_works_for_array :: proc(t: ^testing.T) {
 	// Unset the value 2 from the bitmap, ensure that it decreases
 	// the cardinality.
 	remove(&rb, 2)
-	for _, v in rb.index {
+	for _, v in rb.containers {
 		container = v
 	}
 	ac, ok = container.(Array_Container)
@@ -125,7 +125,7 @@ test_setting_values_works_for_bitmap :: proc(t: ^testing.T) {
 
 	count := 0
 	container: Container
-	for _, v in rb.index {
+	for _, v in rb.containers {
 		count += 1
 		container = v
 	}
@@ -140,7 +140,7 @@ test_setting_values_works_for_bitmap :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb, 4096), true)
 
 	count = 0
-	for _, v in rb.index {
+	for _, v in rb.containers {
 		count += 1
 		container = v
 	}
@@ -153,7 +153,7 @@ test_setting_values_works_for_bitmap :: proc(t: ^testing.T) {
 	// back down to a Array_Container.
 	remove(&rb, 4096)
 	testing.expect_value(t, contains(rb, 4096), false)
-	for _, v in rb.index {
+	for _, v in rb.containers {
 		container = v
 	}
 	ac, ac_ok = container.(Array_Container)
@@ -216,14 +216,14 @@ test_converting_from_bitmap_to_run_container :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, contains(rb, 0), true)
 	testing.expect_value(t, contains(rb, 4999), true)
-	container := rb.index[0]
+	container := rb.containers[0]
 	bc, bc_ok := container.(Bitmap_Container)
 	testing.expect_value(t, bc_ok, true)
 	testing.expect_value(t, bc.cardinality, 5000)
 	testing.expect_value(t, should_convert_container_bitmap_to_run(bc), true)
 
 	optimize(&rb)
-	container = rb.index[0]
+	container = rb.containers[0]
 	rc, rc_ok := container.(Run_Container)
 	testing.expect_value(t, rc_ok, true)
 	testing.expect_value(t, run_container_calculate_cardinality(rc), 5000)
@@ -243,7 +243,7 @@ test_converting_from_run_to_bitmap_container :: proc(t: ^testing.T) {
 	}
 	optimize(&rb)
 
-	container := rb.index[0]
+	container := rb.containers[0]
 	rc, rc_ok := container.(Run_Container)
 	testing.expect_value(t, rc_ok, true)
 	testing.expect_value(t, run_container_calculate_cardinality(rc), 6000)
@@ -255,7 +255,7 @@ test_converting_from_run_to_bitmap_container :: proc(t: ^testing.T) {
 		}
 	}
 
-	container = rb.index[0]
+	container = rb.containers[0]
 	bc, bc_ok := container.(Bitmap_Container)
 	testing.expect_value(t, bc_ok, true)
 	testing.expect_value(t, bc.cardinality, 3952)
@@ -271,13 +271,13 @@ test_multiple_array_containers :: proc(t: ^testing.T) {
 	add(&rb, 1)
 	add(&rb, 123456789)
 
-	testing.expect_value(t, len(rb.index), 2)
+	testing.expect_value(t, len(rb.containers), 2)
 
-	ac1, ok1 := rb.index[most_significant(0)].(Array_Container)
+	ac1, ok1 := rb.containers[most_significant(0)].(Array_Container)
 	testing.expect_value(t, ok1, true)
 	testing.expect_value(t, ac1.cardinality, 2)
 
-	ac2, ok2 := rb.index[most_significant(123456789)].(Array_Container)
+	ac2, ok2 := rb.containers[most_significant(123456789)].(Array_Container)
 	testing.expect_value(t, ok2, true)
 	testing.expect_value(t, ac2.cardinality, 1)
 }
@@ -335,7 +335,7 @@ test_intersection_bitmap :: proc(t: ^testing.T) {
 	}
 
 	rb3, _ := roaring_intersection(rb1, rb2)
-	testing.expect_value(t, len(rb3.index), 1)
+	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 4095), false)
 	testing.expect_value(t, contains(rb3, 4096), true)
 	testing.expect_value(t, contains(rb3, 4097), false)
@@ -355,7 +355,7 @@ test_union_array :: proc(t: ^testing.T) {
 	add(&rb2, 1)
 
 	rb3, _ := roaring_union(rb1, rb2)
-	testing.expect_value(t, len(rb3.index), 1)
+	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
 
@@ -376,7 +376,7 @@ test_union_array_and_bitmap :: proc(t: ^testing.T) {
 	}
 
 	rb3, _ := roaring_union(rb1, rb2)
-	testing.expect_value(t, len(rb3.index), 1)
+	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
 	testing.expect_value(t, contains(rb3, 2), true)
@@ -401,7 +401,7 @@ test_union_bitmap :: proc(t: ^testing.T) {
 	}
 
 	rb3, _ := roaring_union(rb1, rb2)
-	testing.expect_value(t, len(rb3.index), 2)
+	testing.expect_value(t, len(rb3.containers), 2)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 4095), true)
 	testing.expect_value(t, contains(rb3, 4096), true)
@@ -431,14 +431,14 @@ test_strict_methods :: proc(t: ^testing.T) {
 	// Assert we insert without errors.
 	ok, err = strict_add(&rb, 0)
 	testing.expect_value(t, contains(rb, 0), true)
-	testing.expect_value(t, len(rb.index), 1)
+	testing.expect_value(t, len(rb.containers), 1)
 	testing.expect_value(t, ok, true)
 	testing.expect_value(t, err, runtime.Allocator_Error.None)
 
 	// Attempting to insert again causes an Already_Set_Error to be returned.
 	ok, err = strict_add(&rb, 0)
 	testing.expect_value(t, contains(rb, 0), true)
-	testing.expect_value(t, len(rb.index), 1)
+	testing.expect_value(t, len(rb.containers), 1)
 	testing.expect_value(t, ok, false)
 	_, ok = err.(Already_Set_Error)
 	testing.expect_value(t, ok, true)
@@ -446,14 +446,14 @@ test_strict_methods :: proc(t: ^testing.T) {
 	// Unsetting works as expected.
 	ok, err = strict_remove(&rb, 0)
 	testing.expect_value(t, contains(rb, 0), false)
-	testing.expect_value(t, len(rb.index), 0)
+	testing.expect_value(t, len(rb.containers), 0)
 	testing.expect_value(t, ok, true)
 	testing.expect_value(t, err, runtime.Allocator_Error.None)
 
 	// Unsetting the same value again causes an error.
 	ok, err = strict_remove(&rb, 0)
 	testing.expect_value(t, contains(rb, 0), false)
-	testing.expect_value(t, len(rb.index), 0)
+	testing.expect_value(t, len(rb.containers), 0)
 	testing.expect_value(t, ok, false)
 	_, ok = err.(Not_Set_Error)
 	testing.expect_value(t, ok, true)
@@ -471,7 +471,7 @@ test_bitmap_container_count_runs :: proc(t: ^testing.T) {
 	}
 
 	// Should have 5000 runs, each of length 1.
-	bc := rb.index[0].(Bitmap_Container)
+	bc := rb.containers[0].(Bitmap_Container)
 	runs := bitmap_container_count_runs(bc)
 	testing.expect_value(t, runs, 5000)
 }
@@ -485,7 +485,7 @@ test_should_convert_bitmap_container_to_run_container :: proc(t: ^testing.T) {
 		add(&rb, i)
 	}
 
-	bc, ok := rb.index[0].(Bitmap_Container)
+	bc, ok := rb.containers[0].(Bitmap_Container)
 	testing.expect_value(t, ok, true)
 
 	should := should_convert_container_bitmap_to_run(bc)
