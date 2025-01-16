@@ -4,16 +4,54 @@ import "base:runtime"
 import "core:testing"
 
 @(test)
-test_flip_and_select :: proc(t: ^testing.T) {
+test_flip_at_and_select :: proc(t: ^testing.T) {
 	rb, _ := roaring_bitmap_init()
 	defer roaring_bitmap_free(&rb)
 
 	testing.expect_value(t, select(rb, 0), 0)
 	testing.expect_value(t, select(rb, 2), 0)
 
-	flip(&rb, 2)
+	flip_at(&rb, 2)
 	testing.expect_value(t, select(rb, 0), 0)
 	testing.expect_value(t, select(rb, 2), 1)
+}
+
+@(test)
+test_make_iterator :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	add(&rb, 2)
+}
+
+@(test)
+test_iterate_set_values_arrays :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	add(&rb, 2)
+	add(&rb, 230000324)
+	add(&rb, 230000325)
+	add(&rb, 230000326)
+	add(&rb, 300100)
+
+	it, _ := make_iterator(&rb)
+	defer iterator_free(&it)
+
+	for v, i in iterate_set_values(&it) {
+		switch i {
+		case 0:
+			testing.expect_value(t, v, 2)
+		case 1:
+			testing.expect_value(t, v, 300100)
+		case 2:
+			testing.expect_value(t, v, 230000324)
+		case 3:
+			testing.expect_value(t, v, 230000325)
+		case 4:
+			testing.expect_value(t, v, 230000326)
+		}
+	}
 }
 
 @(test)
