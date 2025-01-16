@@ -10,28 +10,17 @@ import "core:slice"
 MAX_RUNS_PERMITTED :: 2047
 MAX_ARRAY_LENGTH :: 4096
 
-// FIXME: These _Int variants are bad..
 Roaring_Error :: union {
 	Already_Set_Error,
-	Already_Set_Error_Int,
 	Not_Set_Error,
-	Not_Set_Error_Int,
 	runtime.Allocator_Error,
 }
 
-Already_Set_Error_Int :: struct {
+Already_Set_Error :: struct {
 	value: int,
 }
 
-Already_Set_Error :: struct {
-	value: u16be,
-}
-
 Not_Set_Error :: struct {
-	value: u16be,
-}
-
-Not_Set_Error_Int :: struct {
 	value: int,
 }
 
@@ -128,22 +117,15 @@ roaring_bitmap_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	delete_key(&rb.index, i)
 }
 
-// FIXME: Make a checked_add that will return the error. And this add
-// should *not* return an error.
-//
 // If a container doesn’t already exist then create a new array container,
 // add it to the Roaring bitmap’s first-level index, and add N to the array.
 add :: proc(
 	rb: ^Roaring_Bitmap,
 	n: int,
-) -> (ok: bool, err: Roaring_Error) {
-	if contains(rb^, n) {
-		return false, Already_Set_Error_Int{n}
-	}
-
-	nbe := u32be(n)
-	i := most_significant(nbe)
-	j := least_significant(nbe)
+) -> (ok: bool, err: runtime.Allocator_Error) {
+	n_be := u32be(n)
+	i := most_significant(n_be)
+	j := least_significant(n_be)
 
 	if !(i in rb.index) {
 		rb.index[i] = array_container_init(rb.allocator) or_return
@@ -170,20 +152,25 @@ add :: proc(
 	return true, nil
 }
 
+// Adds a number to the bitmap, but fails if that value is already set.
+strict_add :: proc(rb: ^Roaring_Bitmap, n: int) -> (ok: bool, err: Roaring_Error) {
+	if contains(rb^, n) {
+		return false, Already_Set_Error{n}
+	}
+
+	return add(rb, n)
+}
+
 remove :: proc(
 	rb: ^Roaring_Bitmap,
 	n: int,
-) -> (ok: bool, err: Roaring_Error) {
-	if !contains(rb^, n) {
-		return false, Not_Set_Error_Int{n}
-	}
-
-	n := u32be(n)
-	i := most_significant(n)
-	j := least_significant(n)
+) -> (ok: bool, err: runtime.Allocator_Error) {
+	n_be := u32be(n)
+	i := most_significant(n_be)
+	j := least_significant(n_be)
 
 	if !(i in rb.index) {
-		return false, Not_Set_Error{j}
+		return true, nil
 	}
 
 	container := &rb.index[i]
@@ -210,6 +197,18 @@ remove :: proc(
 	}
 
 	return true, nil
+}
+
+// Removes a number from the bitmap, but fails if that value is *not* actually set.
+strict_remove :: proc(
+	rb: ^Roaring_Bitmap,
+	n: int,
+) -> (ok: bool, err: Roaring_Error) {
+	if !contains(rb^, n) {
+		return false, Not_Set_Error{n}
+	}
+
+	return remove(rb, n)
 }
 
 // Gets the value (0 or 1) of the N-th value.
@@ -345,33 +344,31 @@ least_significant :: proc(n: u32be) -> u16be {
 array_container_add :: proc(
 	ac: ^Array_Container,
 	n: u16be,
-) -> (ok: bool, err: Roaring_Error) {
+) -> (ok: bool, err: runtime.Allocator_Error) {
 	i, found := slice.binary_search(ac.packed_array[:], n)
 
-	if found {
-		return false, Already_Set_Error{n}
+	if !found {
+		inject_at(&ac.packed_array, i, n) or_return
+		ac.cardinality += 1
+		return true, nil
+	} else {
+		return false, nil
 	}
-
-	inject_at(&ac.packed_array, i, n)
-	ac.cardinality += 1
-
-	return true, nil
 }
 
 array_container_remove :: proc(
 	ac: ^Array_Container,
 	n: u16be,
-) -> (ok: bool, err: Roaring_Error) {
+) -> (ok: bool, err: runtime.Allocator_Error) {
 	i, found := slice.binary_search(ac.packed_array[:], n)
 
-	if !found {
-		return false, Not_Set_Error{n}
+	if found {
+		ordered_remove(&ac.packed_array, i)
+		ac.cardinality -= 1
+		return true, nil
+	} else {
+		return false, nil
 	}
-
-	ordered_remove(&ac.packed_array, i)
-	ac.cardinality -= 1
-
-	return true, nil
 }
 
 array_container_contains :: proc(ac: Array_Container, n: u16be) -> (found: bool) {
@@ -382,11 +379,7 @@ array_container_contains :: proc(ac: Array_Container, n: u16be) -> (found: bool)
 bitmap_container_add :: proc(
 	bc: ^Bitmap_Container,
 	n: u16be,
-) -> (ok: bool, err: Roaring_Error) {
-	if bitmap_container_contains(bc^, n) {
-		return false, Already_Set_Error{n}
-	}
-
+) -> (ok: bool, err: runtime.Allocator_Error) {
 	bitmap := bc.bitmap
 
 	byte_i := n / 8
@@ -404,11 +397,7 @@ bitmap_container_add :: proc(
 bitmap_container_remove :: proc(
 	bc: ^Bitmap_Container,
 	n: u16be,
-) -> (ok: bool, err: Roaring_Error) {
-	if !bitmap_container_contains(bc^, n) {
-		return false, Not_Set_Error{n}
-	}
-
+) -> (ok: bool, err: runtime.Allocator_Error) {
 	bitmap := bc.bitmap
 
 	byte_i := n / 8
@@ -447,16 +436,12 @@ bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16be) -> (found: boo
 run_container_add :: proc(
 	rc: ^Run_Container,
 	n: u16be,
-) -> (ok: bool, err: Roaring_Error) {
-	if run_container_contains(rc^, n) {
-		return false, Already_Set_Error{n}
-	}
-
+) -> (ok: bool, err: runtime.Allocator_Error) {
 	n := int(n)
 
 	if len(rc.run_list) == 0 {
 		new_run := Run{start=n, length=1}
-		append(&rc.run_list, new_run)
+		append(&rc.run_list, new_run) or_return
 		return true, nil
 	}
 
@@ -509,7 +494,7 @@ run_container_add :: proc(
 		}
 	} else {
 		new_run := Run{start=n, length=1}
-		inject_at(&rc.run_list, i, new_run)
+		inject_at(&rc.run_list, i, new_run) or_return
 	}
 
 	return true, nil
@@ -556,11 +541,7 @@ find_possible_run_by_value :: proc(rl: Run_List, n: int) -> (run: ^Run, index: i
 run_container_remove :: proc(
 	rc: ^Run_Container,
 	n: u16be,
-) -> (ok: bool, err: Roaring_Error) {
-	if !run_container_contains(rc^, n) {
-		return false, Not_Set_Error{n}
-	}
-
+) -> (ok: bool, err: runtime.Allocator_Error) {
 	n := int(n)
 	run_to_check, index, exact_match := find_possible_run_by_value(rc.run_list, n)
 
@@ -587,7 +568,7 @@ run_container_remove :: proc(
 		run_to_check.start = n + 1
 		run_to_check.length = run_to_check.length - (run_to_check.start - new_rc.start)
 
-		inject_at(&rc.run_list, index, new_rc)
+		inject_at(&rc.run_list, index, new_rc) or_return
 	}
 
 	return true, nil
@@ -619,7 +600,7 @@ convert_container_array_to_bitmap :: proc(
 	bc = bitmap_container_init(allocator) or_return
 
 	for i in ac.packed_array {
-		bitmap_container_add(&bc, i)
+		bitmap_container_add(&bc, i) or_return
 	}
 
 	array_container_free(ac)
@@ -638,7 +619,7 @@ convert_container_bitmap_to_array :: proc(
 			bit_is_set := (byte & (1 << u8(j))) != 0
 			if bit_is_set {
 				total_i := u16be((i * 8) + j)
-				array_container_add(&ac, total_i)
+				array_container_add(&ac, total_i) or_return
 			}
 		}
 	}
@@ -658,7 +639,7 @@ convert_container_run_to_bitmap :: proc(
 		start := run.start
 		for i := 0; i < run.length; i += 1 {
 			v := u16be(start + i)
-			bitmap_container_add(&bc, v)
+			bitmap_container_add(&bc, v) or_return
 		}
 	}
 
@@ -677,7 +658,7 @@ convert_container_run_to_array :: proc(
 		start := run.start
 		for i := 0; i < run.length; i += 1 {
 			v := u16be(start + i)
-			array_container_add(&ac, v)
+			array_container_add(&ac, v) or_return
 		}
 	}
 
@@ -893,13 +874,13 @@ intersection_array_with_array :: proc(
 	if ac1.cardinality < ac2.cardinality {
 		for v in ac1.packed_array {
 			if array_container_contains(ac2, v) {
-				array_container_add(&ac, v)
+				array_container_add(&ac, v) or_return
 			}
 		}
 	} else {
 		for v in ac2.packed_array {
 			if array_container_contains(ac1, v) {
-				array_container_add(&ac, v)
+				array_container_add(&ac, v) or_return
 			}
 		}
 	}
@@ -942,23 +923,23 @@ union_array_with_array :: proc(
 	if (ac1.cardinality + ac2.cardinality) <= MAX_ARRAY_LENGTH {
 		ac := array_container_init(allocator) or_return
 		for v in ac1.packed_array {
-			array_container_add(&ac, v)
+			array_container_add(&ac, v) or_return
 		}
 		// Only add the values from the second array *if* it has not already been added.
 		for v in ac2.packed_array {
 			if !array_container_contains(ac, v) {
-				array_container_add(&ac, v)
+				array_container_add(&ac, v) or_return
 			}
 		}
 		c = ac
 	} else {
 		bc := bitmap_container_init(allocator) or_return
 		for v in ac1.packed_array {
-			bitmap_container_add(&bc, v)
+			bitmap_container_add(&bc, v) or_return
 		}
 		for v in ac2.packed_array {
 			if !bitmap_container_contains(bc, v) {
-				bitmap_container_add(&bc, v)
+				bitmap_container_add(&bc, v) or_return
 			}
 		}
 		c = bc
@@ -979,7 +960,7 @@ intersection_array_with_bitmap :: proc(
 	new_ac = array_container_init(allocator) or_return
 	for v in ac.packed_array {
 		if bitmap_container_contains(bc, v) {
-			array_container_add(&new_ac, v)
+			array_container_add(&new_ac, v) or_return
 		}
 	}
 	return new_ac, nil
@@ -997,7 +978,7 @@ union_array_with_bitmap :: proc(
 
 	for v in ac.packed_array {
 		if !bitmap_container_contains(new_bc, v) {
-			bitmap_container_add(&new_bc, v)
+			bitmap_container_add(&new_bc, v) or_return
 		}
 	}
 
@@ -1041,7 +1022,7 @@ intersection_bitmap_with_bitmap :: proc(
 				bit_is_set := (res & (1 << u8(j))) != 0
 				if bit_is_set {
 					total_i := u16be((i * 8) + j)
-					array_container_add(&ac, total_i)
+					array_container_add(&ac, total_i) or_return
 				}
 			}
 		}
@@ -1100,7 +1081,7 @@ intersection_array_with_run :: proc(
 			// If the run contains this array value, set it in the new array containing
 			// the intersection and continue at the outer loop with the next array value.
 			if int(array_val) >= run.start && int(array_val) < run_end_position(run) {
-				array_container_add(&new_ac, array_val)
+				array_container_add(&new_ac, array_val) or_return
 				continue array_loop
 			} else {
 				i += 1
@@ -1134,7 +1115,7 @@ union_array_with_run :: proc(
 	new_rc := c.(Run_Container)
 
 	for v in ac.packed_array {
-		run_container_add(&new_rc, v)
+		run_container_add(&new_rc, v) or_return
 	}
 
 	return convert_container_optimal(new_rc, allocator)
@@ -1163,7 +1144,7 @@ intersection_bitmap_with_run :: proc(
 		for run in rc.run_list {
 			for i := run.start; i < run_end_position(run); i += 1 {
 				if bitmap_container_contains(bc, u16be(i)) {
-					array_container_add(&nc_ac, u16be(i))	
+					array_container_add(&nc_ac, u16be(i)) or_return
 				}
 			}
 		}
@@ -1309,7 +1290,7 @@ intersection_run_with_run :: proc(
 		if runs_overlap(run1, run2) {
 			overlap_start, overlap_end := run_overlapping_range(run1, run2)
 			for n in overlap_start..=overlap_end {
-				run_container_add(&new_rc, u16be(n))
+				run_container_add(&new_rc, u16be(n)) or_return
 			}
 
 			if run_end_position(run1) < run_end_position(run2) {
@@ -1360,14 +1341,14 @@ union_run_with_run :: proc(
 	// FIXME: Can any of this be optimized?
 	for run in rc1.run_list {
 		for i := run.start; i < run_end_position(run); i += 1 {
-			run_container_add(&new_rc, u16be(i))
+			run_container_add(&new_rc, u16be(i)) or_return
 		}
 	}
 
 	// FIXME: Can any of this be optimized?
 	for run in rc2.run_list {
 		for i := run.start; i < run_end_position(run); i += 1 {
-			run_container_add(&new_rc, u16be(i))
+			run_container_add(&new_rc, u16be(i)) or_return
 		}
 	}
 

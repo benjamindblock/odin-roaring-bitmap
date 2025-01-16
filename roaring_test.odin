@@ -1,5 +1,6 @@
 package roaring
 
+import "base:runtime"
 import "core:testing"
 
 @(test)
@@ -378,7 +379,7 @@ test_union_bitmap :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_errors_thrown :: proc(t: ^testing.T) {
+test_strict_methods :: proc(t: ^testing.T) {
 	rb, _ := roaring_bitmap_init()
 	defer roaring_bitmap_free(&rb)
 
@@ -390,33 +391,33 @@ test_errors_thrown :: proc(t: ^testing.T) {
 	err: Roaring_Error
 
 	// Assert we insert without errors.
-	ok, err = add(&rb, 0)
+	ok, err = strict_add(&rb, 0)
 	testing.expect_value(t, contains(rb, 0), true)
 	testing.expect_value(t, len(rb.index), 1)
 	testing.expect_value(t, ok, true)
-	testing.expect_value(t, err, nil)
+	testing.expect_value(t, err, runtime.Allocator_Error.None)
 
 	// Attempting to insert again causes an Already_Set_Error to be returned.
-	ok, err = add(&rb, 0)
+	ok, err = strict_add(&rb, 0)
 	testing.expect_value(t, contains(rb, 0), true)
 	testing.expect_value(t, len(rb.index), 1)
 	testing.expect_value(t, ok, false)
-	_, ok = err.(Already_Set_Error_Int)
+	_, ok = err.(Already_Set_Error)
 	testing.expect_value(t, ok, true)
 
-	// // Unsetting works as expected.
-	ok, err = remove(&rb, 0)
+	// Unsetting works as expected.
+	ok, err = strict_remove(&rb, 0)
 	testing.expect_value(t, contains(rb, 0), false)
 	testing.expect_value(t, len(rb.index), 0)
 	testing.expect_value(t, ok, true)
-	testing.expect_value(t, err, nil)
+	testing.expect_value(t, err, runtime.Allocator_Error.None)
 
 	// Unsetting the same value again causes an error.
-	ok, err = remove(&rb, 0)
+	ok, err = strict_remove(&rb, 0)
 	testing.expect_value(t, contains(rb, 0), false)
 	testing.expect_value(t, len(rb.index), 0)
 	testing.expect_value(t, ok, false)
-	_, ok = err.(Not_Set_Error_Int)
+	_, ok = err.(Not_Set_Error)
 	testing.expect_value(t, ok, true)
 }
 
