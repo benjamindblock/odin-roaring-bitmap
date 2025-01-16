@@ -143,7 +143,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 
 			// If we have reached the end of the array (and the container), then
 			// advance to the next container.
-			if it.bit_idx >= len(c.packed_array) {
+			if int(it.bit_idx) >= c.cardinality {
 				it.bit_idx = 0
 				it.word_idx = 0
 				it.container_idx += 1
@@ -160,7 +160,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 				// Scan for the next set bit in this word.
 				for (byte & (1 << it.bit_idx)) == 0 {
 					// If we reached the end of the bitmap, move to the next container.
-					if it.bit_idx >= 8 && it.word_idx >= len(c.bitmap) - 1 {
+					if it.bit_idx >= 8 && it.word_idx >= BYTES_PER_BITMAP - 1 {
 						it.bit_idx = 0
 						it.word_idx = 0
 						it.container_idx += 1
@@ -853,11 +853,11 @@ convert_container_bitmap_to_run :: proc(
 
 	i := 1
 	byte := bc.bitmap[i-1]
-	for i <= len(bc.bitmap) {
+	for i <= BYTES_PER_BITMAP {
 		if byte == 0b00000000 {
 			i += 1
 
-			if i > len(bc.bitmap) {
+			if i > BYTES_PER_BITMAP {
 				break
 			}
 
@@ -869,7 +869,7 @@ convert_container_bitmap_to_run :: proc(
 		x := int(j) + 8 * (i - 1)
 		byte = byte | (byte - 1)
 
-		for i + 1 <= len(bc.bitmap) && byte == 0b11111111 {
+		for i + 1 <= BYTES_PER_BITMAP && byte == 0b11111111 {
 			i += 1
 			byte = bc.bitmap[i-1]
 		}
@@ -1355,7 +1355,7 @@ intersection_bitmap_with_run :: proc(
 		// Set any remaining bits after the last Run to be 0.
 		last_run := rc.run_list[len(rc.run_list) - 1]
 		unset_start := run_end_position(last_run) + 1
-		unset_length := (len(bc.bitmap) * 8) - unset_start
+		unset_length := (BYTES_PER_BITMAP * 8) - unset_start
 		unset_range_of_bits_in_bitmap_container(&new_bc, unset_start, unset_length)
 
 		// Determine the cardinality.
@@ -1582,12 +1582,12 @@ run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: int, end: int) {
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 7, Algorithm 1)
 @(private)
 bitmap_container_count_runs :: proc(bc: Bitmap_Container) -> (count: int) {
-	for i in 0..<(len(bc.bitmap) - 1) {
+	for i in 0..<(BYTES_PER_BITMAP - 1) {
 		byte := bc.bitmap[i]
 		count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7) &~ bc.bitmap[i + 1])
 	}
 
-	byte := bc.bitmap[len(bc.bitmap) - 1]
+	byte := bc.bitmap[BYTES_PER_BITMAP - 1]
 	count += intrinsics.count_ones(int(byte << 1) &~ int(byte)) + int((byte >> 7))
 
 	return count
