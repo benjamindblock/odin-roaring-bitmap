@@ -27,6 +27,7 @@ test_make_iterator :: proc(t: ^testing.T) {
 @(test)
 test_iterate_set_values_arrays :: proc(t: ^testing.T) {
 	rb, _ := roaring_bitmap_init()
+	it := make_iterator(&rb)
 	defer roaring_bitmap_free(&rb)
 
 	add(&rb, 2)
@@ -34,9 +35,6 @@ test_iterate_set_values_arrays :: proc(t: ^testing.T) {
 	add(&rb, 230000325)
 	add(&rb, 230000326)
 	add(&rb, 300100)
-
-	it, _ := make_iterator(&rb)
-	defer iterator_free(&it)
 
 	for v, i in iterate_set_values(&it) {
 		switch i {

@@ -86,30 +86,22 @@ Roaring_Bitmap :: struct {
 	allocator: mem.Allocator,
 }
 
-
 Roaring_Bitmap_Iterator :: struct {
 	rb: ^Roaring_Bitmap,
 	cardinality: int,
-	container_keys: []u16be,
-	overall_idx: int,
-	container_idx: int,
-	word_idx: int,
-	bit_idx: uint,
+	overall_idx: int,    // Progress amongst all set values
+	container_idx: int,  // The container in the cindex we are in
+	word_idx: int,       // The sub-container position (eg., byte, Run) we are at
+	bit_idx: uint,       // The position in the sub-container
 }
 
-make_iterator :: proc(rb: ^Roaring_Bitmap) -> (it: Roaring_Bitmap_Iterator, err: runtime.Allocator_Error) {
-	container_keys := slice.map_keys(rb.containers, rb.allocator) or_return
-	slice.sort(container_keys[:])
+make_iterator :: proc(rb: ^Roaring_Bitmap) -> Roaring_Bitmap_Iterator {
+	it := Roaring_Bitmap_Iterator {
+		rb = rb,
+		cardinality = get_cardinality(rb^),
+	}
 
-	it.rb = rb
-	it.cardinality = get_cardinality(rb^)
-	it.container_keys = container_keys
-
-	return it, nil
-}
-
-iterator_free :: proc(it: ^Roaring_Bitmap_Iterator) {
-	delete(it.container_keys)
+	return it
 }
 
 // the Roaring_Bitmap in order...
@@ -127,7 +119,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 		}
 
 		// Get the current container
-		key := it.container_keys[it.container_idx]
+		key := it.rb.cindex[it.container_idx]
 		container := it.rb.containers[key]
 
 		switch c in container {
@@ -255,6 +247,9 @@ roaring_bitmap_free :: proc(rb: ^Roaring_Bitmap) {
 	}
 	delete(rb.containers)
 	delete(rb.cindex)
+
+	assert(len(rb.cindex) == 0, "CIndex should be zero after freeing!")
+	assert(len(rb.containers) == 0, "Containers should be gone after freeing!")
 }
 
 roaring_bitmap_clone :: proc(
@@ -1796,7 +1791,7 @@ optimize :: proc(rb: ^Roaring_Bitmap) -> (err: runtime.Allocator_Error) {
 	return nil
 }
 
-main :: proc() {
+_main :: proc() {
 	fmt.println("Hello, world!")
 
 	rb, _ := roaring_bitmap_init()
@@ -1816,8 +1811,34 @@ main :: proc() {
 		}
 	}
 
-	it, _ := make_iterator(&rb)
+	it := make_iterator(&rb)
 	for set, i in iterate_set_values(&it) {
 		fmt.println(i, set)
 	}
+}
+
+main :: proc() {
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+
+		defer {
+			if len(track.allocation_map) > 0 {
+				fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			if len(track.bad_free_array) > 0 {
+				fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+				for entry in track.bad_free_array {
+					fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
+
+	_main()
 }
