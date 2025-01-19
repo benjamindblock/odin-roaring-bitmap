@@ -899,3 +899,29 @@ test_flip_bitmap_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb, 9), false)
 	testing.expect_value(t, contains(rb, 10), true)
 }
+
+@(test)
+test_flip_run_container :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	for i in 0..<60000 {
+		if i > 0 && i < 4 {
+			continue
+		}
+		add(&rb, i)
+	}
+	optimize(&rb)
+
+	// [Run{start = 0, length = 1}, Run{start = 4, length = 59996}]
+	// =>  [Run{start = 0, length = 4}, Run{start = 6, length = 59991}, Run{start = 60000, length = 4}]}]
+	flip(&rb, 1, 5)
+	flip(&rb, 59997, 60003)
+
+	rc, rc_ok := rb.containers[rb.cindex[0]].(Run_Container)
+	testing.expect_value(t, rc_ok, true)
+	testing.expect_value(t, len(rc.run_list), 3)
+	testing.expect_value(t, rc.run_list[0], Run{0, 4})
+	testing.expect_value(t, rc.run_list[1], Run{6, 59991})
+	testing.expect_value(t, rc.run_list[2], Run{60000, 4})
+}

@@ -452,7 +452,14 @@ flip :: proc(rb: ^Roaring_Bitmap, start: int, end: int) -> (ok: bool, err: runti
 	return true, nil
 }
 
-flip_within_container :: proc(rb: ^Roaring_Bitmap, container_idx: u16be, start: u16be, end: u16be) -> (ok: bool, err: runtime.Allocator_Error) {
+// TODO: Ensure cardinality for containers is set correctly here...
+@(private)
+flip_within_container :: proc(
+	rb: ^Roaring_Bitmap,
+	container_idx: u16be,
+	start: u16be,
+	end: u16be,
+) -> (ok: bool, err: runtime.Allocator_Error) {
 	// If the current container is *not* in the Roaring_Bitmap, that means it contains all
 	// zeros and we can create a new container set to 1 (a full Run_List).
 	if !(container_idx in rb.containers) {
@@ -573,11 +580,45 @@ flip_within_container :: proc(rb: ^Roaring_Bitmap, container_idx: u16be, start: 
 	// problem only when the number of runs increases and the original runs fit
 	// exactly within the array."
 	case Run_Container:
+		_, idx, _ := find_possible_run_by_value(c.run_list, int(start))
+		cursor := start
+
+		for cursor <= end {
+			// NOTE: Do this inside the loop as we are appending to the Run_List as
+			// we go here. We need to calc every time we iterate.
+			if idx >= len(c.run_list) {
+				break
+			}
+
+			// Set values up until the Run begins.
+			run := c.run_list[idx]
+			for int(cursor) < run.start && cursor <= end {
+				run_container_add(&c, cursor)
+				cursor += 1
+			}
+
+			// Unset values *inside* the Run.
+			for int(cursor) < run_end_position(run) && cursor <= end {
+				run_container_remove(&c, cursor)
+				cursor += 1
+			}
+			idx += 1
+		}
+
+		// Beyond the last Run, we want to set all remaing values to 1.
+		for cursor <= end {
+			run_container_add(&c, cursor)
+			cursor += 1
+		}
 	}
 
 	
 	rb.containers[container_idx] = container
 	return true, nil
+}
+
+run_contains :: proc(r: Run, n: int) -> bool {
+	return n >= r.start && n < run_end_position(r)
 }
 
 // Add the value if it is not already present, otherwise remove it.
@@ -1974,9 +2015,19 @@ _main :: proc() {
 	rb, _ := roaring_bitmap_init()
 	defer roaring_bitmap_free(&rb)
 
-	for i in 0..<5000 {
+	for i in 0..<60000 {
+		if i > 0 && i < 4 {
+			continue
+		}
 		add(&rb, i)
 	}
+	optimize(&rb)
+
+	fmt.println(rb)
+	flip(&rb, 1, 5)
+	flip(&rb, 59997, 60003)
+	fmt.println(rb)
+	// flip(&rb, 14, 25)
 
 	// fmt.println("0 set:", contains(rb, 0))
 	// fmt.println("1 set:", contains(rb, 1))
@@ -1988,26 +2039,12 @@ _main :: proc() {
 	// fmt.println("7 set:", contains(rb, 7))
 	// fmt.println("8 set:", contains(rb, 8))
 	// fmt.println("9 set:", contains(rb, 9))
-	// fmt.println("10 set:", contains(rb, 10))
-	fmt.println("FLIP")
-	flip(&rb, 14, 25)
-
-	fmt.println("0 set:", contains(rb, 0))
-	fmt.println("1 set:", contains(rb, 1))
-	fmt.println("2 set:", contains(rb, 2))
-	fmt.println("3 set:", contains(rb, 3))
-	fmt.println("4 set:", contains(rb, 4))
-	fmt.println("5 set:", contains(rb, 5))
-	fmt.println("6 set:", contains(rb, 6))
-	fmt.println("7 set:", contains(rb, 7))
-	fmt.println("8 set:", contains(rb, 8))
-	fmt.println("9 set:", contains(rb, 9))
-	fmt.println("13 set:", contains(rb, 13))
-	fmt.println("14 set:", contains(rb, 14))
-	fmt.println("15 set:", contains(rb, 15))
-	fmt.println("24 set:", contains(rb, 24))
-	fmt.println("25 set:", contains(rb, 25))
-	fmt.println("26 set:", contains(rb, 26))
+	// fmt.println("13 set:", contains(rb, 13))
+	// fmt.println("14 set:", contains(rb, 14))
+	// fmt.println("15 set:", contains(rb, 15))
+	// fmt.println("24 set:", contains(rb, 24))
+	// fmt.println("25 set:", contains(rb, 25))
+	// fmt.println("26 set:", contains(rb, 26))
 	// fmt.println("10 set:", contains(rb, 10))
 	// fmt.println(rb)
 }
