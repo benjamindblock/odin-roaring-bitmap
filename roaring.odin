@@ -520,22 +520,23 @@ flip_within_container :: proc(rb: ^Roaring_Bitmap, container_idx: u16be, start: 
 		cursor := start
 		start_byte := start / 8
 		end_byte := (end / 8) + 1
-		fmt.println("START", start_byte, "END", end_byte)
-		for byte_i: u16be = 0; byte_i < end_byte; byte_i += 1 {
-			fmt.println("BYTE I", byte_i)
+
+		// FIXME: Just using the raw bitmap_container_add/bitmap_container_remove procs
+		// at the beginning/end here instead of doing any fancy bit flipping..
+		//
+		// I figure we only have to run this at max 8 times per flip, so it's not a huge
+		// perf. hit. An optimization area for the future though when I have time.
+		for byte_i: u16be = start_byte; byte_i <= end_byte; byte_i += 1 {
 			bm := c.bitmap[byte_i]
-			// If at the start, flip from the starting position until either:
-			// - the end of the byte if: (end - start) > (8 - start)
-			// - the end of the bits left to count
+
+			// If at the start, flip from the starting position until we either:
+			// - hit the end of the byte
+			// - set all the bits we need to
 			if byte_i == start_byte {
 				start_bit := start - (byte_i * 8)
-				bits_left_in_byte := 8 - start_bit
 				left_to_flip := end - cursor
-				// Add one because we set bits inclusively (including the `end` param).
-				bits_to_flip := min(left_to_flip, bits_left_in_byte) + 1
-				fmt.println("HERE, start_bit", start_bit, "cursor", cursor, "end", end, "bits left", bits_left_in_byte, "bits to flip", bits_to_flip)
-
-				for bit_i := start_bit; bit_i < (start_bit + bits_to_flip) && bit_i < 8; bit_i += 1 {
+				end_bit := min(start_bit + left_to_flip, 7)
+				for _ in start_bit..=end_bit {
 					if bitmap_container_contains(c, cursor) {
 						bitmap_container_remove(&c, cursor)
 					} else {
@@ -544,11 +545,11 @@ flip_within_container :: proc(rb: ^Roaring_Bitmap, container_idx: u16be, start: 
 					cursor += 1
 				}
 
-			// Flip from 0 until the final number of bits.
+			// If at the end, flip from 0 until we have finished setting
+			// all the required bits.
 			} else if byte_i == (end_byte - 1) {
 				bits_to_flip := end - cursor
 				for _ in 0..=bits_to_flip {
-					fmt.println("FLIPPING", cursor)
 					if bitmap_container_contains(c, cursor) {
 						bitmap_container_remove(&c, cursor)
 					} else {
@@ -558,8 +559,10 @@ flip_within_container :: proc(rb: ^Roaring_Bitmap, container_idx: u16be, start: 
 				}
 
 			// Otherwise we are in an entire byte that needs to be flipped.
+			// Flip it all and increase our cursor by 8.
 			} else {
 				bm = bm &~ bm
+				cursor += 8
 			}
 		}
 
@@ -1987,7 +1990,7 @@ _main :: proc() {
 	// fmt.println("9 set:", contains(rb, 9))
 	// fmt.println("10 set:", contains(rb, 10))
 	fmt.println("FLIP")
-	flip(&rb, 5, 8)
+	flip(&rb, 14, 25)
 
 	fmt.println("0 set:", contains(rb, 0))
 	fmt.println("1 set:", contains(rb, 1))
@@ -1999,7 +2002,13 @@ _main :: proc() {
 	fmt.println("7 set:", contains(rb, 7))
 	fmt.println("8 set:", contains(rb, 8))
 	fmt.println("9 set:", contains(rb, 9))
-	fmt.println("10 set:", contains(rb, 10))
+	fmt.println("13 set:", contains(rb, 13))
+	fmt.println("14 set:", contains(rb, 14))
+	fmt.println("15 set:", contains(rb, 15))
+	fmt.println("24 set:", contains(rb, 24))
+	fmt.println("25 set:", contains(rb, 25))
+	fmt.println("26 set:", contains(rb, 26))
+	// fmt.println("10 set:", contains(rb, 10))
 	// fmt.println(rb)
 }
 
