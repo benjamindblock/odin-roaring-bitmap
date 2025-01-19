@@ -419,7 +419,8 @@ select :: proc(rb: Roaring_Bitmap, n: int) -> int {
 	}
 }
 
-// Flips all the bits within a given range (inclusive) in a Roaring_Bitmap.
+// Flips all the bits from a start range (inclusive) to end (inclusive)
+// in a Roaring_Bitmap.
 flip :: proc(rb: ^Roaring_Bitmap, start: int, end: int) -> (ok: bool, err: runtime.Allocator_Error) {
 	start_be := u32be(start)
 	start_i := most_significant(start_be)
@@ -505,9 +506,11 @@ flip_within_container :: proc(
 
 			if cursor < array_val {
 				inject_at(&c.packed_array, first_one_i + offset, cursor)
+				c.cardinality += 1
 				offset += 1
 			} else if cursor == array_val {
 				ordered_remove(&c.packed_array, first_one_i + offset)
+				c.cardinality -= 1
 			} else {
 				array_cursor += 1
 
@@ -517,8 +520,8 @@ flip_within_container :: proc(
 
 		for v in cursor..=end {
 			append(&c.packed_array, v)
+			c.cardinality += 1
 		}
-
 
 	// "Flipping a bitmap container can be done in-place, if needed, using a
 	// procedure similar to Algorithm 3."
@@ -572,6 +575,7 @@ flip_within_container :: proc(
 				cursor += 8
 			}
 		}
+		c.cardinality = bitmap_container_calculate_cardinality(c)
 
 	// "In flipping a run container, we always first compute the result as a run
 	// container. When the container’s capacity permits, an in-place flip avoids
@@ -583,6 +587,11 @@ flip_within_container :: proc(
 		_, idx, _ := find_possible_run_by_value(c.run_list, int(start))
 		cursor := start
 
+		// FIXME: run_container_add and run_container_remove *each* call a binary
+		// search on the Run_List in this container, so this is *not* efficient.
+		//
+		// Are there some utils for expanding/collapsing Run objects that we can
+		// use here that are currently in run_container_add/run_container_remove.
 		for cursor <= end {
 			// NOTE: Do this inside the loop as we are appending to the Run_List as
 			// we go here. We need to calc every time we iterate.
@@ -613,7 +622,13 @@ flip_within_container :: proc(
 	}
 
 	
-	rb.containers[container_idx] = container
+	// Remove this container entirely if we no longer have any elements in it.
+	if container_get_cardinality(container) == 0 {
+		roaring_bitmap_free_at(rb, container_idx)
+	} else {
+		rb.containers[container_idx] = container
+	}
+
 	return true, nil
 }
 
@@ -2015,38 +2030,13 @@ _main :: proc() {
 	rb, _ := roaring_bitmap_init()
 	defer roaring_bitmap_free(&rb)
 
-	for i in 0..<60000 {
-		if i > 0 && i < 4 {
-			continue
-		}
-		add(&rb, i)
-	}
-	optimize(&rb)
-
+	add(&rb, 3)
+	add(&rb, 4)
 	fmt.println(rb)
-	flip(&rb, 1, 5)
-	flip(&rb, 59997, 60003)
+	flip(&rb, 3, 4)
 	fmt.println(rb)
-	// flip(&rb, 14, 25)
-
-	// fmt.println("0 set:", contains(rb, 0))
-	// fmt.println("1 set:", contains(rb, 1))
-	// fmt.println("2 set:", contains(rb, 2))
-	// fmt.println("3 set:", contains(rb, 3))
-	// fmt.println("4 set:", contains(rb, 4))
-	// fmt.println("5 set:", contains(rb, 5))
-	// fmt.println("6 set:", contains(rb, 6))
-	// fmt.println("7 set:", contains(rb, 7))
-	// fmt.println("8 set:", contains(rb, 8))
-	// fmt.println("9 set:", contains(rb, 9))
-	// fmt.println("13 set:", contains(rb, 13))
-	// fmt.println("14 set:", contains(rb, 14))
-	// fmt.println("15 set:", contains(rb, 15))
-	// fmt.println("24 set:", contains(rb, 24))
-	// fmt.println("25 set:", contains(rb, 25))
-	// fmt.println("26 set:", contains(rb, 26))
-	// fmt.println("10 set:", contains(rb, 10))
-	// fmt.println(rb)
+	flip(&rb, 3, 4)
+	fmt.println(rb)
 }
 
 main :: proc() {

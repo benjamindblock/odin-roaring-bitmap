@@ -846,6 +846,7 @@ test_flip_array_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(rb.containers), 1)
 	ac, ac_ok := rb.containers[rb.cindex[0]].(Array_Container)
 	testing.expect_value(t, ac_ok, true)
+	testing.expect_value(t, ac.cardinality, 5)
 	equal := slice.equal(ac.packed_array[:], []u16be{1, 2, 4, 6, 7})
 	testing.expect_value(t, len(ac.packed_array), 5)
 	testing.expect_value(t, equal, true)
@@ -856,9 +857,32 @@ test_flip_array_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(rb.containers), 1)
 	ac, ac_ok = rb.containers[rb.cindex[0]].(Array_Container)
 	testing.expect_value(t, ac_ok, true)
+	testing.expect_value(t, ac.cardinality, 2)
 	equal = slice.equal(ac.packed_array[:], []u16be{3, 5})
 	testing.expect_value(t, len(ac.packed_array), 2)
 	testing.expect_value(t, equal, true)
+}
+
+@(test)
+test_flip_array_container_remove :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	add(&rb, 3)
+	add(&rb, 4)
+	flip(&rb, 3, 4)
+	testing.expect_value(t, len(rb.cindex), 0)
+	testing.expect_value(t, len(rb.containers), 0)
+
+	flip(&rb, 3, 4)
+	testing.expect_value(t, len(rb.cindex), 1)
+	testing.expect_value(t, len(rb.containers), 1)
+
+	// We will default to a Run container when flipping all zeds to one.
+	rc, rc_ok := rb.containers[rb.cindex[0]].(Run_Container)
+	testing.expect_value(t, rc_ok, true)
+	testing.expect_value(t, len(rc.run_list), 1)
+	testing.expect_value(t, rc.run_list[0], Run{3, 2})
 }
 
 @(test)
