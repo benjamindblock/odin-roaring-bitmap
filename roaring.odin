@@ -52,6 +52,9 @@ Bitmap_Container :: struct {
 	cardinality: int,
 }
 
+// FIXME: start should be a u16be because it is an index to an actual location
+// within the container. end can stay as an int because it is just a length.
+//
 // "Unlike an array or bitmap container, a run container does not keep track of its
 // cardinality; its cardinality can be computed on the fly by summing the lengths
 // of the runs. In most applications, we expect the number of runs to be often
@@ -416,9 +419,161 @@ select :: proc(rb: Roaring_Bitmap, n: int) -> int {
 	}
 }
 
-// TODO: Implement.
-// Flips all the bits in a Roaring_Bitmap.
-flip :: proc(rb: ^Roaring_Bitmap) -> (ok: bool, err: runtime.Allocator_Error) {
+// Flips all the bits within a given range (inclusive) in a Roaring_Bitmap.
+flip :: proc(rb: ^Roaring_Bitmap, start: int, end: int) -> (ok: bool, err: runtime.Allocator_Error) {
+	start_be := u32be(start)
+	start_i := most_significant(start_be)
+	start_j := least_significant(start_be)
+
+	end_be := u32be(end)
+	end_i := most_significant(end_be)
+	end_j := least_significant(end_be)
+
+	// Flipping a range within a single container.
+	if start_i == end_i {
+		flip_within_container(rb, start_i, start_j, end_j)
+		return
+	}
+
+	for i in start_i..=end_i {
+		// If we are at the first container, start flipping from the beginning of the range
+		// until the end of the container.
+		if i == start_i {
+			flip_within_container(rb, i, start_j, 65535)
+		// If we are at the last container, start flipping from 0 until the end of the range.
+		} else if i == end_i {
+			flip_within_container(rb, i, 0, end_j)
+		// Otherwise we are in an intermediary container, in which case flip the entire thing.
+		} else {
+			flip_within_container(rb, i, 0, 65535)
+		}
+	}
+
+	return true, nil
+}
+
+flip_within_container :: proc(rb: ^Roaring_Bitmap, container_idx: u16be, start: u16be, end: u16be) -> (ok: bool, err: runtime.Allocator_Error) {
+	// If the current container is *not* in the Roaring_Bitmap, that means it contains all
+	// zeros and we can create a new container set to 1 (a full Run_List).
+	if !(container_idx in rb.containers) {
+		rc := run_container_init() or_return
+		append(&rc.run_list, Run{int(start), int(end - start) + 1})
+		rb.containers[container_idx] = rc
+		roaring_bitmap_add_to_cindex(rb, container_idx)
+		return
+	}
+
+	// If the container is in the Roaring_Bitmap and its values are all 1s, and we
+	// want to flip the full range of the container, then delete it.
+	container := rb.containers[container_idx]
+	if container_is_full(container) && start == 0 && end == 65535 {
+		roaring_bitmap_free_at(rb, container_idx)
+		return
+	}
+
+	// Otherwise flip with a given range.
+	switch &c in container {
+	// "When applied to an array container, the flip function uses a binary search
+	// to first determine all values contained in the range. We can then determine
+	// whether the result of the flip should be an array container or a bitmap
+	// container. If the output is an array container, then the flip can be done
+	// in- place, assuming that there is enough capacity in the container,
+	// otherwise a new buffer is allocated. If the output must be a bitmap
+	// container, the array container is converted to a bitmap container and
+	// flipped."
+	// Ref: https://arxiv.org/pdf/1603.06549 (Page 13)
+	case Array_Container:
+		first_one_i, _ := slice.binary_search(c.packed_array[:], start)
+
+		cursor := start
+		offset := 0
+		array_cursor := first_one_i
+		array_val := c.packed_array[array_cursor]
+
+		outer: for {
+			if (first_one_i + offset) >= len(c.packed_array) {
+				break outer
+			}
+			array_val = c.packed_array[first_one_i + offset]
+
+			if cursor < array_val {
+				inject_at(&c.packed_array, first_one_i + offset, cursor)
+				offset += 1
+			} else if cursor == array_val {
+				ordered_remove(&c.packed_array, first_one_i + offset)
+			} else {
+				array_cursor += 1
+
+			}
+			cursor += 1
+		}
+
+		for v in cursor..=end {
+			append(&c.packed_array, v)
+		}
+
+
+	// "Flipping a bitmap container can be done in-place, if needed, using a
+	// procedure similar to Algorithm 3."
+	// Ref: https://arxiv.org/pdf/1603.06549 (Page 13)
+	case Bitmap_Container:
+		cursor := start
+		start_byte := start / 8
+		end_byte := (end / 8) + 1
+		fmt.println("START", start_byte, "END", end_byte)
+		for byte_i: u16be = 0; byte_i < end_byte; byte_i += 1 {
+			fmt.println("BYTE I", byte_i)
+			bm := c.bitmap[byte_i]
+			// If at the start, flip from the starting position until either:
+			// - the end of the byte if: (end - start) > (8 - start)
+			// - the end of the bits left to count
+			if byte_i == start_byte {
+				start_bit := start - (byte_i * 8)
+				bits_left_in_byte := 8 - start_bit
+				left_to_flip := end - cursor
+				// Add one because we set bits inclusively (including the `end` param).
+				bits_to_flip := min(left_to_flip, bits_left_in_byte) + 1
+				fmt.println("HERE, start_bit", start_bit, "cursor", cursor, "end", end, "bits left", bits_left_in_byte, "bits to flip", bits_to_flip)
+
+				for bit_i := start_bit; bit_i < (start_bit + bits_to_flip) && bit_i < 8; bit_i += 1 {
+					if bitmap_container_contains(c, cursor) {
+						bitmap_container_remove(&c, cursor)
+					} else {
+						bitmap_container_add(&c, cursor)
+					}
+					cursor += 1
+				}
+
+			// Flip from 0 until the final number of bits.
+			} else if byte_i == (end_byte - 1) {
+				bits_to_flip := end - cursor
+				for _ in 0..=bits_to_flip {
+					fmt.println("FLIPPING", cursor)
+					if bitmap_container_contains(c, cursor) {
+						bitmap_container_remove(&c, cursor)
+					} else {
+						bitmap_container_add(&c, cursor)
+					}
+					cursor += 1
+				}
+
+			// Otherwise we are in an entire byte that needs to be flipped.
+			} else {
+				bm = bm &~ bm
+			}
+		}
+
+	// "In flipping a run container, we always first compute the result as a run
+	// container. When the container’s capacity permits, an in-place flip avoids
+	// memory allocation. This should be a common situation, because flipping
+	// increases the number of runs by at most one. Thus, there is a capacity
+	// problem only when the number of runs increases and the original runs fit
+	// exactly within the array."
+	case Run_Container:
+	}
+
+	
+	rb.containers[container_idx] = container
 	return true, nil
 }
 
@@ -528,6 +683,26 @@ container_get_cardinality :: proc(container: Container) -> (cardinality: int) {
 		cardinality = run_container_calculate_cardinality(c)
 	}
 	return cardinality
+}
+
+@(private)
+container_is_full :: proc(container: Container) -> bool {
+	switch c in container {
+	// Array_Container can never be full because it can only hold 4096 values,
+	// and a container can contain 65536 values at the max.
+	case Array_Container:
+		return false
+	case Bitmap_Container:
+		and_bc := proc(byte1: u8, byte2: u8) -> u8 {
+			return byte1 & byte2
+		}
+		res: u8 = slice.reduce(c.bitmap[:], u8(0b11111111), and_bc)
+		return res == 0b11111111
+	case Run_Container:
+		rl := c.run_list
+		return len(rl) == 1 && rl[0] == Run{0, 65536}
+	}
+	return false
 }
 
 // Returns a u16 in big-endian made up of the 16 most significant
@@ -1793,28 +1968,39 @@ optimize :: proc(rb: ^Roaring_Bitmap) -> (err: runtime.Allocator_Error) {
 
 _main :: proc() {
 	fmt.println("Hello, world!")
-
 	rb, _ := roaring_bitmap_init()
 	defer roaring_bitmap_free(&rb)
 
-	for i in 0..=10000 {
+	for i in 0..<5000 {
 		add(&rb, i)
 	}
 
-	for i in 11000..=12000 {
-		add(&rb, i)
-	}
+	// fmt.println("0 set:", contains(rb, 0))
+	// fmt.println("1 set:", contains(rb, 1))
+	// fmt.println("2 set:", contains(rb, 2))
+	// fmt.println("3 set:", contains(rb, 3))
+	// fmt.println("4 set:", contains(rb, 4))
+	// fmt.println("5 set:", contains(rb, 5))
+	// fmt.println("6 set:", contains(rb, 6))
+	// fmt.println("7 set:", contains(rb, 7))
+	// fmt.println("8 set:", contains(rb, 8))
+	// fmt.println("9 set:", contains(rb, 9))
+	// fmt.println("10 set:", contains(rb, 10))
+	fmt.println("FLIP")
+	flip(&rb, 5, 8)
 
-	for i in 23000123..=23002500 {
-		if i % 2 == 0 {
-			add(&rb, i)
-		}
-	}
-
-	it := make_iterator(&rb)
-	for set, i in iterate_set_values(&it) {
-		fmt.println(i, set)
-	}
+	fmt.println("0 set:", contains(rb, 0))
+	fmt.println("1 set:", contains(rb, 1))
+	fmt.println("2 set:", contains(rb, 2))
+	fmt.println("3 set:", contains(rb, 3))
+	fmt.println("4 set:", contains(rb, 4))
+	fmt.println("5 set:", contains(rb, 5))
+	fmt.println("6 set:", contains(rb, 6))
+	fmt.println("7 set:", contains(rb, 7))
+	fmt.println("8 set:", contains(rb, 8))
+	fmt.println("9 set:", contains(rb, 9))
+	fmt.println("10 set:", contains(rb, 10))
+	// fmt.println(rb)
 }
 
 main :: proc() {

@@ -1,6 +1,7 @@
 package roaring
 
 import "base:runtime"
+import "core:slice"
 import "core:testing"
 
 @(test)
@@ -759,4 +760,142 @@ test_union_run_with_run :: proc(t: ^testing.T) {
 	testing.expect_value(t, array_container_contains(ac, 7), false)
 	testing.expect_value(t, array_container_contains(ac, 8), false)
 	testing.expect_value(t, array_container_contains(ac, 9), false)
+}
+
+@(test)
+test_container_is_full :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	// Should end up with two containers, the first one is full at
+	// 65536 values and the second one half full.
+	for i in 0..=100000 {
+		add(&rb, i)
+	}
+
+	// Check the logic for Bitmap_Container.
+	bc1, bc1_ok := rb.containers[0].(Bitmap_Container)
+	testing.expect_value(t, bc1_ok, true)
+	testing.expect_value(t, bc1.cardinality, 65536)
+	testing.expect_value(t, container_is_full(bc1), true)
+
+	bc, bc_ok := rb.containers[1].(Bitmap_Container)
+	testing.expect_value(t, bc_ok, true)
+	testing.expect_value(t, bc.cardinality, 34465)
+	testing.expect_value(t, container_is_full(bc), false)
+
+	// Check the logic for Run_Container.
+	optimize(&rb)
+	rc1, rc1_ok := rb.containers[0].(Run_Container)
+	testing.expect_value(t, rc1_ok, true)
+	testing.expect_value(t, len(rc1.run_list), 1)
+	testing.expect_value(t, container_is_full(rc1), true)
+	testing.expect_value(t, rc1.run_list[0], Run{0, 65536})
+
+	rc2, rc2_ok := rb.containers[1].(Run_Container)
+	testing.expect_value(t, rc2_ok, true)
+	testing.expect_value(t, len(rc2.run_list), 1)
+	testing.expect_value(t, container_is_full(rc2), false)
+	testing.expect_value(t, rc2.run_list[0], Run{0, 34465})
+}
+
+@(test)
+test_flip_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	flip(&rb, 0, 1000)
+
+	testing.expect_value(t, len(rb.cindex), 1)
+	testing.expect_value(t, len(rb.containers), 1)
+
+	rc1, rc1_ok := rb.containers[rb.cindex[0]].(Run_Container)
+	testing.expect_value(t, rc1_ok, true)
+	testing.expect_value(t, len(rc1.run_list), 1)
+	testing.expect_value(t, rc1.run_list[0], Run{0, 1001})
+}
+
+@(test)
+test_flip_with_full_container :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	for i in 0..<65536 {
+		add(&rb, i)
+	}
+
+	testing.expect_value(t, len(rb.cindex), 1)
+	testing.expect_value(t, len(rb.containers), 1)
+	testing.expect_value(t, container_is_full(rb.containers[rb.cindex[0]]), true)
+
+	flip(&rb, 0, 65535)
+	testing.expect_value(t, len(rb.cindex), 0)
+	testing.expect_value(t, len(rb.containers), 0)
+}
+
+@(test)
+test_flip_array_container :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	add(&rb, 3)
+	add(&rb, 5)
+
+	flip(&rb, 1, 7)
+	testing.expect_value(t, len(rb.cindex), 1)
+	testing.expect_value(t, len(rb.containers), 1)
+	ac, ac_ok := rb.containers[rb.cindex[0]].(Array_Container)
+	testing.expect_value(t, ac_ok, true)
+	equal := slice.equal(ac.packed_array[:], []u16be{1, 2, 4, 6, 7})
+	testing.expect_value(t, len(ac.packed_array), 5)
+	testing.expect_value(t, equal, true)
+
+	// Flip back and assert is correct.
+	flip(&rb, 1, 7)
+	testing.expect_value(t, len(rb.cindex), 1)
+	testing.expect_value(t, len(rb.containers), 1)
+	ac, ac_ok = rb.containers[rb.cindex[0]].(Array_Container)
+	testing.expect_value(t, ac_ok, true)
+	equal = slice.equal(ac.packed_array[:], []u16be{3, 5})
+	testing.expect_value(t, len(ac.packed_array), 2)
+	testing.expect_value(t, equal, true)
+}
+
+@(test)
+test_flip_bitmap_container :: proc(t: ^testing.T) {
+	rb, _ := roaring_bitmap_init()
+	defer roaring_bitmap_free(&rb)
+
+	for i in 0..<5000 {
+		add(&rb, i)
+	}
+
+	testing.expect_value(t, len(rb.cindex), 1)
+	testing.expect_value(t, len(rb.containers), 1)
+	bc, bc_ok := rb.containers[rb.cindex[0]].(Bitmap_Container)
+	testing.expect_value(t, bc_ok, true)
+	testing.expect_value(t, bc.cardinality, 5000)
+
+	// Flip from 6 to 9 to ensure we cross bytes.
+	flip(&rb, 6, 9)
+	bc, bc_ok = rb.containers[rb.cindex[0]].(Bitmap_Container)
+	testing.expect_value(t, bc_ok, true)
+	testing.expect_value(t, bc.cardinality, 4996)
+	testing.expect_value(t, contains(rb, 5), true)
+	testing.expect_value(t, contains(rb, 6), false)
+	testing.expect_value(t, contains(rb, 7), false)
+	testing.expect_value(t, contains(rb, 8), false)
+	testing.expect_value(t, contains(rb, 9), false)
+	testing.expect_value(t, contains(rb, 10), true)
+
+	flip(&rb, 7, 8)
+	bc, bc_ok = rb.containers[rb.cindex[0]].(Bitmap_Container)
+	testing.expect_value(t, bc_ok, true)
+	testing.expect_value(t, bc.cardinality, 4998)
+	testing.expect_value(t, contains(rb, 5), true)
+	testing.expect_value(t, contains(rb, 6), false)
+	testing.expect_value(t, contains(rb, 7), true)
+	testing.expect_value(t, contains(rb, 8), true)
+	testing.expect_value(t, contains(rb, 9), false)
+	testing.expect_value(t, contains(rb, 10), true)
 }
