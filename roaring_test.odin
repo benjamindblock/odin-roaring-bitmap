@@ -202,6 +202,14 @@ test_setting_values_for_run_container_complex :: proc(t: ^testing.T) {
 	run_container_remove(&rc, 1)
 	testing.expect_value(t, rc.run_list[0], Run{0, 1})
 	testing.expect_value(t, rc.run_list[1], Run{2, 4})
+
+	run_container_add(&rc, 1)
+	testing.expect_value(t, len(rc.run_list), 1)
+	testing.expect_value(t, rc.run_list[0], Run{0, 6})
+
+	run_container_remove(&rc, 0)
+	testing.expect_value(t, len(rc.run_list), 1)
+	testing.expect_value(t, rc.run_list[0], Run{1, 5})
 }
 
 @(test)

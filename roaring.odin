@@ -571,11 +571,12 @@ flip_within_container :: proc(
 			// Otherwise we are in an entire byte that needs to be flipped.
 			// Flip it all and increase our cursor by 8.
 			} else {
-				bm = bm &~ bm
+				c.cardinality -= int(intrinsics.count_ones(bm))
+				bm = intrinsics.reverse_bits(bm)
+				c.cardinality += int(intrinsics.count_ones(bm))
 				cursor += 8
 			}
 		}
-		c.cardinality = bitmap_container_calculate_cardinality(c)
 
 	// "In flipping a run container, we always first compute the result as a run
 	// container. When the container’s capacity permits, an in-place flip avoids
@@ -584,7 +585,7 @@ flip_within_container :: proc(
 	// problem only when the number of runs increases and the original runs fit
 	// exactly within the array."
 	case Run_Container:
-		_, idx, _ := find_possible_run_by_value(c.run_list, int(start))
+		idx, _ := run_list_binary_search(c.run_list, int(start))
 		cursor := start
 
 		// FIXME: run_container_add and run_container_remove *each* call a binary
@@ -634,6 +635,15 @@ flip_within_container :: proc(
 
 run_contains :: proc(r: Run, n: int) -> bool {
 	return n >= r.start && n < run_end_position(r)
+}
+
+// Checks if a given run *could* contain a given N-value by either
+// expansion forwards or backwards.
+//
+// Eg., run_could_contain(Run{2, 1}, 1) => true (as Run{1, 2} would
+// be the new Run that contains the N-value).
+run_could_contain :: proc(r: Run, n: int) -> bool {
+	return n >= (r.start - 1) && n <= run_end_position(r)
 }
 
 // Add the value if it is not already present, otherwise remove it.
@@ -874,10 +884,49 @@ bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16be) -> (found: boo
 	return found
 }
 
+// Searches for a given N-value in a Run_List.
+// - true if the value is inside a Run in the Run_List.
+// Otherwise returns the position in the Run_List where a value
+// could be added.
+run_list_binary_search :: proc(rl: Run_List, n: int) -> (int, bool) {
+	cmp := proc(r: Run, n: int) -> (res: slice.Ordering) {
+		if run_contains(r, n) {
+			res = .Equal
+		} else if r.start > n {
+			res = .Greater
+		} else {
+			res = .Less
+		}
+
+		return res
+	}
+
+	return slice.binary_search_by(rl[:], n, cmp)
+}
+
+// Searches for a Run in the Run_List that *could* contain the given N-value.
+// This means that we calculate the (start - 1) and (end + 1) of each Run before checking
+// if the N-value is inside it. If found, then that Run either:
+// - Currently contains the N-value
+// - Could be expanded forward or backwards to include it
+run_list_could_contain_binary_search :: proc(rl: Run_List, n: int) -> (int, bool) {
+	cmp := proc(r: Run, n: int) -> (res: slice.Ordering) {
+		if run_could_contain(r, n) {
+			res = .Equal
+		} else if r.start > n {
+			res = .Greater
+		} else {
+			res = .Less
+		}
+
+		return res
+	}
+
+	return slice.binary_search_by(rl[:], n, cmp)
+}
+
 // Sets a value in a Run_List.
-//
-// TODO: Cleanup and unify with find_possible_run_by_value, which is used in
-// the run_container_remove and run_container_contains methods.
+// TODO: Cleanup and unify with run_container_remove and flip_within_container.
 @(private)
 run_container_add :: proc(
 	rc: ^Run_Container,
@@ -885,99 +934,57 @@ run_container_add :: proc(
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	n := int(n)
 
+	// If the Run_List is empty, then create the first Run and add it to the list.
 	if len(rc.run_list) == 0 {
 		new_run := Run{start=n, length=1}
 		append(&rc.run_list, new_run) or_return
 		return true, nil
 	}
 
-	cmp := proc(r: Run, n: int) -> (res: slice.Ordering) {
-		if n >= (r.start - 1) && n <= run_end_position(r) {
-			res = .Equal
-		} else if n < r.start {
-			res = .Greater
-		} else if n > run_end_position(r) {
-			res = .Less
-		} else {
-			res = .Equal
-		}
+	i, found := run_list_could_contain_binary_search(rc.run_list, n)
 
-		return res
+	// If we did not find a Run that could contain this N-value, start a new Run
+	// and add it to the Run_List.
+	if !found {
+		new_run := Run{start = n, length = 1}
+		inject_at(&rc.run_list, i, new_run) or_return
+		return true, nil
 	}
 
-	i, found := slice.binary_search_by(rc.run_list[:], n, cmp)
+	// Otherwise, we can expand the Run that was found either forwards or backwards
+	// to include the N-value.
+	run_to_expand := &rc.run_list[i]
 
-	if found {
-		run_to_expand := &rc.run_list[i]
+	// Expand the matching Run backwards if needed.
+	if run_to_expand.start - 1 == n {
+		run_to_expand.start -= 1
+		run_to_expand.length += 1
 
-		// Expand the matching Run backwards.
-		if run_to_expand.start - 1 == n {
-			run_to_expand.start -= 1
-			run_to_expand.length += 1
-
-			// Merge with the previous run if we need to.
-			if i - 1 >= 0 {
-				prev_run := rc.run_list[i-1]
-				if run_to_expand.start == run_end_position(prev_run) {
-					run_to_expand.length += prev_run.length
-					run_to_expand.start = prev_run.start
-					ordered_remove(&rc.run_list, i-1)
-				}
-			}
-
-		// Expand a Run forwards.
-		} else if run_end_position(run_to_expand^) == n {
-			run_to_expand.length += 1
-
-			// Merge with the next run if we need to.
-			if i + 1 < len(rc.run_list) {
-				next_run := rc.run_list[i+1]
-				if run_end_position(run_to_expand^) == next_run.start {
-					run_to_expand.length += next_run.length
-					ordered_remove(&rc.run_list, i+1)
-				}
+		// Merge with the previous run if we need to.
+		if i - 1 >= 0 {
+			prev_run := rc.run_list[i-1]
+			if run_to_expand.start == run_end_position(prev_run) {
+				run_to_expand.length += prev_run.length
+				run_to_expand.start = prev_run.start
+				ordered_remove(&rc.run_list, i-1)
 			}
 		}
-	} else {
-		new_run := Run{start=n, length=1}
-		inject_at(&rc.run_list, i, new_run) or_return
+
+	// Expand a Run forwards.
+	} else if run_end_position(run_to_expand^) == n {
+		run_to_expand.length += 1
+
+		// Merge with the next run if we need to.
+		if i + 1 < len(rc.run_list) {
+			next_run := rc.run_list[i+1]
+			if run_end_position(run_to_expand^) == next_run.start {
+				run_to_expand.length += next_run.length
+				ordered_remove(&rc.run_list, i+1)
+			}
+		}
 	}
 
 	return true, nil
-}
-
-// Finds the Run that might contain a given value and returns a pointer to it
-// for modification.
-@(private)
-find_possible_run_by_value :: proc(rl: Run_List, n: int) -> (run: ^Run, index: int, exact_match: bool) {
-	if len(rl) == 0 {
-		return run, -1, false
-	}
-
-	cmp := proc(r: Run, n: int) -> slice.Ordering {
-		if r.start < n {
-			return .Less
-		} else if r.start > n {
-			return .Greater
-		} else {
-			return .Equal
-		}
-	}
-
-	i, found := slice.binary_search_by(rl[:], n, cmp)
-
-	if found {
-		return &rl[i], i, true
-	}
-
-	// Because the binary_search_by returns the insertion order if an element
-	// is not found, we want to subtract 1 to get the container that the run
-	// might actually be in.
-	if i > 0 {
-		i -= 1
-	}
-
-	return &rl[i], i, false
 }
 
 // Cases:
@@ -991,14 +998,22 @@ run_container_remove :: proc(
 	n: u16be,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	n := int(n)
-	run_to_check, index, exact_match := find_possible_run_by_value(rc.run_list, n)
+
+	// If we don't find an exact match, we have a problem!
+	// That means the N-value is not actually in the Run_List.
+	i, exact_match := run_list_binary_search(rc.run_list, n)
+	if !exact_match {
+		return false, nil
+	}
+
+	run_to_check := &rc.run_list[i]
 
 	// 1. Standalone Run -- remove
-	if exact_match && run_to_check.length == 1 {
-		ordered_remove(&rc.run_list, index)	
+	if run_to_check.length == 1 {
+		ordered_remove(&rc.run_list, i)	
 
 	// 2. Value at beginning of run -- increment start by 1 and decrease length by 1
-	} else if exact_match {
+	} else if run_to_check.start == n {
 		run_to_check.start += 1
 		run_to_check.length -= 1
 
@@ -1008,15 +1023,15 @@ run_container_remove :: proc(
 
 	// 4. Value in middle of run -- split Run into two Runs
 	} else {
-		new_rc := Run{
+		run1 := Run{
 			start = run_to_check.start,
 			length = (n - run_to_check.start),
 		}
+		run2 := run_to_check
 
-		run_to_check.start = n + 1
-		run_to_check.length = run_to_check.length - (run_to_check.start - new_rc.start)
-
-		inject_at(&rc.run_list, index, new_rc) or_return
+		run2.start = n + 1
+		run2.length = run2.length - (run2.start - run1.start)
+		inject_at(&rc.run_list, i, run1) or_return
 	}
 
 	return true, nil
@@ -1029,16 +1044,8 @@ run_container_contains :: proc(rc: Run_Container, n: u16be) -> bool {
 		return false
 	}
 
-	run_to_check, _, exact_match := find_possible_run_by_value(rc.run_list, int(n))
-
-	if exact_match {
-		return true
-	}
-
-	start := run_to_check.start
-	end := (start + run_to_check.length) - 1
-
-	return int(n) >= start && int(n) <= end
+	_, found := run_list_binary_search(rc.run_list, int(n))
+	return found
 }
 
 // Array_Container => Bitmap_Container
@@ -1548,7 +1555,7 @@ intersection_array_with_run :: proc(
 			run := rc.run_list[i]
 			// If the run contains this array value, set it in the new array containing
 			// the intersection and continue at the outer loop with the next array value.
-			if int(array_val) >= run.start && int(array_val) < run_end_position(run) {
+			if run_contains(run, int(array_val)) {
 				array_container_add(&new_ac, array_val) or_return
 				continue array_loop
 			} else {
@@ -2027,16 +2034,22 @@ optimize :: proc(rb: ^Roaring_Bitmap) -> (err: runtime.Allocator_Error) {
 
 _main :: proc() {
 	fmt.println("Hello, world!")
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
 
-	add(&rb, 3)
-	add(&rb, 4)
-	fmt.println(rb)
-	flip(&rb, 3, 4)
-	fmt.println(rb)
-	flip(&rb, 3, 4)
-	fmt.println(rb)
+	rc, _ := run_container_init()
+	defer run_container_free(rc)
+
+	run_container_add(&rc, 3)
+	run_container_add(&rc, 4)
+	run_container_add(&rc, 0)
+	run_container_add(&rc, 2)
+	run_container_add(&rc, 5)
+	run_container_add(&rc, 1)
+	run_container_remove(&rc, 1)
+	run_container_add(&rc, 1)
+
+	fmt.println(rc)
+	run_container_remove(&rc, 0)
+	fmt.println(rc)
 }
 
 main :: proc() {
