@@ -29,6 +29,17 @@ container_get_cardinality :: proc(container: Container) -> (cardinality: int) {
 	return cardinality
 }
 
+@(private)
+container_set_cardinality :: proc(container: ^Container) {
+	switch &c in container {
+	case Array_Container:
+		c.cardinality = array_container_get_cardinality(c)
+	case Bitmap_Container:
+		c.cardinality = bitmap_container_get_cardinality(c)
+	case Run_Container:
+	}
+}
+
 @(private, require_results)
 container_is_full :: proc(container: Container) -> bool {
 	switch c in container {
@@ -51,8 +62,6 @@ container_is_full :: proc(container: Container) -> bool {
 
 // Converts a given container into its optimal representation, using a
 // variety of heuristics.
-//
-// TODO: Should this always be done in-place??
 @(private)
 container_convert_to_optimal :: proc(
 	container: Container,
@@ -141,7 +150,6 @@ container_clone :: proc(
 	return cloned, nil
 }
 
-// TODO: Ensure cardinality for containers is set correctly here...
 @(private)
 container_flip :: proc(
 	rb: ^Roaring_Bitmap,
@@ -194,11 +202,9 @@ container_flip :: proc(
 
 			if cursor < array_val {
 				inject_at(&c.packed_array, first_one_i + offset, cursor)
-				c.cardinality += 1
 				offset += 1
 			} else if cursor == array_val {
 				ordered_remove(&c.packed_array, first_one_i + offset)
-				c.cardinality -= 1
 			} else {
 				array_cursor += 1
 
@@ -210,6 +216,7 @@ container_flip :: proc(
 			append(&c.packed_array, v)
 			c.cardinality += 1
 		}
+		c.cardinality = array_container_get_cardinality(c)
 
 	// "Flipping a bitmap container can be done in-place, if needed, using a
 	// procedure similar to Algorithm 3."

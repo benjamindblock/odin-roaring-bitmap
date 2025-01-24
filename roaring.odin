@@ -375,22 +375,6 @@ select :: proc(rb: Roaring_Bitmap, n: int) -> int {
 	}
 }
 
-// Returns a u16 in big-endian made up of the 16 most significant
-// bits in a u32be number.
-@(private, require_results)
-most_significant :: proc(n: u32be) -> u16be {
-	as_bytes := transmute([4]byte)n
-	return slice.to_type(as_bytes[0:2], u16be)
-}
-
-// Returns a u16 in big-endian made up of the 16 least significant
-// bits in a u32be number.
-@(private, require_results)
-least_significant :: proc(n: u32be) -> u16be {
-	as_bytes := transmute([4]byte)n
-	return slice.to_type(as_bytes[2:4], u16be)
-}
-
 // Performs an AND between of two Roaring_Bitmap structures and returns
 // a new Roaring_Bitmap containing the result.
 and :: proc(
@@ -661,6 +645,22 @@ optimize :: proc(rb: ^Roaring_Bitmap) -> (err: runtime.Allocator_Error) {
 	}
 
 	return nil
+}
+
+// Returns a u16 in big-endian made up of the 16 most significant
+// bits in a u32be number.
+@(private, require_results)
+most_significant :: proc(n: u32be) -> u16be {
+	as_bytes := transmute([4]byte)n
+	return slice.to_type(as_bytes[0:2], u16be)
+}
+
+// Returns a u16 in big-endian made up of the 16 least significant
+// bits in a u32be number.
+@(private, require_results)
+least_significant :: proc(n: u32be) -> u16be {
+	as_bytes := transmute([4]byte)n
+	return slice.to_type(as_bytes[2:4], u16be)
 }
 
 _main :: proc() {

@@ -872,6 +872,7 @@ test_flip_inplace_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 
 	rc1, rc1_ok := rb.containers[rb.cindex[0]].(Run_Container)
 	testing.expect_value(t, rc1_ok, true)
+	testing.expect_value(t, container_get_cardinality(rc1), 1001)
 	testing.expect_value(t, len(rc1.run_list), 1)
 	testing.expect_value(t, rc1.run_list[0], Run{0, 1001})
 }
@@ -887,7 +888,9 @@ test_flip_inplace_with_full_container :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, len(rb.cindex), 1)
 	testing.expect_value(t, len(rb.containers), 1)
-	testing.expect_value(t, container_is_full(rb.containers[rb.cindex[0]]), true)
+	c := rb.containers[rb.cindex[0]]
+	testing.expect_value(t, container_is_full(c), true)
+	testing.expect_value(t, container_get_cardinality(c), 65536)
 
 	flip_inplace(&rb, 0, 65535)
 	testing.expect_value(t, len(rb.cindex), 0)
