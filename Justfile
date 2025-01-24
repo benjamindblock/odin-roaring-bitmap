@@ -13,3 +13,6 @@ run: build
 
 check:
 	odin check . {{flags}}
+
+benchmark:
+	odin run ./benchmark -out:bin/benchmark-{{name}} -debug {{flags}}

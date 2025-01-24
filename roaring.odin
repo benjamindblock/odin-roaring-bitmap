@@ -113,7 +113,10 @@ free :: proc(rb: ^Roaring_Bitmap) {
 	for i, _ in rb.containers {
 		free_at(rb, i)
 	}
+
+	clear(&rb.containers)
 	delete(rb.containers)
+	clear(&rb.cindex)
 	delete(rb.cindex)
 
 	assert(len(rb.cindex) == 0, "CIndex should be zero after freeing!")
@@ -161,6 +164,17 @@ free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	delete_key(&rb.containers, i)
 	cindex_ordered_remove(rb, i)
 	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
+}
+
+to_array :: proc(rb: Roaring_Bitmap) -> []int {
+	rb := rb
+	iterator := make_iterator(&rb)
+
+	acc := make([dynamic]int)
+	for v in iterate_set_values(&iterator) {
+		append(&acc, v)
+	}
+	return acc[:]
 }
 
 // Adds a value to the Roaring_Bitmap. If a container doesn’t already exist
