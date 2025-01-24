@@ -6,8 +6,8 @@ import "core:testing"
 
 @(test)
 test_flip_at_and_select :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	testing.expect_value(t, select(rb, 0), 0)
 	testing.expect_value(t, select(rb, 2), 0)
@@ -19,17 +19,17 @@ test_flip_at_and_select :: proc(t: ^testing.T) {
 
 @(test)
 test_make_iterator :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	add(&rb, 2)
 }
 
 @(test)
 test_iterate_set_values_arrays :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
+	rb, _ := init()
 	it := make_iterator(&rb)
-	defer roaring_bitmap_free(&rb)
+	defer free(&rb)
 
 	add(&rb, 2)
 	add(&rb, 230000324)
@@ -55,21 +55,21 @@ test_iterate_set_values_arrays :: proc(t: ^testing.T) {
 
 @(test)
 test_clone :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	add(&rb, 2)
 	testing.expect_value(t, select(rb, 2), 1)
 
-	rb2, _ := roaring_bitmap_clone(rb)
-	defer roaring_bitmap_free(&rb2)
+	rb2, _ := clone(rb)
+	defer free(&rb2)
 	testing.expect_value(t, select(rb2, 2), 1)
 }
 
 @(test)
 test_setting_values_works_for_array :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	add(&rb, 0)
 	add(&rb, 1)
@@ -113,8 +113,8 @@ test_setting_values_works_for_array :: proc(t: ^testing.T) {
 test_setting_values_works_for_bitmap :: proc(t: ^testing.T) {
 	// Create a Roaring_Bitmap and assert that setting up to
 	// 4096 values will use a Array_Container.
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	for i in 0..<4096 {
 		add(&rb, i)
@@ -214,8 +214,8 @@ test_setting_values_for_run_container_complex :: proc(t: ^testing.T) {
 
 @(test)
 test_converting_from_bitmap_to_run_container :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	// Confirm all 5000 bits are set in the Bitmap_Container.
 	for i in 0..<5000 {
@@ -227,7 +227,7 @@ test_converting_from_bitmap_to_run_container :: proc(t: ^testing.T) {
 	bc, bc_ok := container.(Bitmap_Container)
 	testing.expect_value(t, bc_ok, true)
 	testing.expect_value(t, bc.cardinality, 5000)
-	testing.expect_value(t, should_convert_container_bitmap_to_run(bc), true)
+	testing.expect_value(t, bitmap_container_should_convert_to_run(bc), true)
 
 	optimize(&rb)
 	container = rb.containers[0]
@@ -241,8 +241,8 @@ test_converting_from_bitmap_to_run_container :: proc(t: ^testing.T) {
 
 @(test)
 test_converting_from_run_to_bitmap_container :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	// Confirm all 6000 bits are set in the Bitmap_Container.
 	for i in 0..<6000 {
@@ -271,8 +271,8 @@ test_converting_from_run_to_bitmap_container :: proc(t: ^testing.T) {
 
 @(test)
 test_multiple_array_containers :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	add(&rb, 0)
 	add(&rb, 1)
@@ -290,99 +290,99 @@ test_multiple_array_containers :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_intersection_array :: proc(t: ^testing.T) {
-	rb1, _ := roaring_bitmap_init()
+test_and_array :: proc(t: ^testing.T) {
+	rb1, _ := init()
 	add(&rb1, 0)
 	add(&rb1, 1)
 
-	rb2, _ := roaring_bitmap_init()
+	rb2, _ := init()
 	add(&rb2, 1)
 
-	rb3, _ := roaring_intersection(rb1, rb2)
+	rb3, _ := and(rb1, rb2)
 	testing.expect_value(t, contains(rb3, 0), false)
 	testing.expect_value(t, contains(rb3, 1), true)
 
-	roaring_bitmap_free(&rb1)
-	roaring_bitmap_free(&rb2)
-	roaring_bitmap_free(&rb3)
+	free(&rb1)
+	free(&rb2)
+	free(&rb3)
 }
 
 @(test)
-test_intersection_array_and_bitmap :: proc(t: ^testing.T) {
-	rb1, _ := roaring_bitmap_init()
+test_and_array_and_bitmap :: proc(t: ^testing.T) {
+	rb1, _ := init()
 	add(&rb1, 0)
 	add(&rb1, 1)
 
-	rb2, _ := roaring_bitmap_init()
+	rb2, _ := init()
 	for i in 0..=4096 {
 		add(&rb2, i)
 	}
 
-	rb3, _ := roaring_intersection(rb1, rb2)
+	rb3, _ := and(rb1, rb2)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
 	testing.expect_value(t, contains(rb3, 2), false)
 	testing.expect_value(t, contains(rb3, 4096), false)
 
-	roaring_bitmap_free(&rb1)
-	roaring_bitmap_free(&rb2)
-	roaring_bitmap_free(&rb3)
+	free(&rb1)
+	free(&rb2)
+	free(&rb3)
 }
 
 @(test)
-test_intersection_bitmap :: proc(t: ^testing.T) {
-	rb1, _ := roaring_bitmap_init()
+test_and_bitmap :: proc(t: ^testing.T) {
+	rb1, _ := init()
 	for i in 0..=4096 {
 		add(&rb1, i)
 	}
 
-	rb2, _ := roaring_bitmap_init()
+	rb2, _ := init()
 	for i in 4096..=9999 {
 		add(&rb2, i)
 	}
 
-	rb3, _ := roaring_intersection(rb1, rb2)
+	rb3, _ := and(rb1, rb2)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 4095), false)
 	testing.expect_value(t, contains(rb3, 4096), true)
 	testing.expect_value(t, contains(rb3, 4097), false)
 
-	roaring_bitmap_free(&rb1)
-	roaring_bitmap_free(&rb2)
-	roaring_bitmap_free(&rb3)
+	free(&rb1)
+	free(&rb2)
+	free(&rb3)
 }
 
 @(test)
-test_union_array :: proc(t: ^testing.T) {
-	rb1, _ := roaring_bitmap_init()
+test_or_array :: proc(t: ^testing.T) {
+	rb1, _ := init()
 	add(&rb1, 0)
 	add(&rb1, 1)
 
-	rb2, _ := roaring_bitmap_init()
+	rb2, _ := init()
 	add(&rb2, 1)
 
-	rb3, _ := roaring_union(rb1, rb2)
+	rb3, _ := or(rb1, rb2)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
 
-	roaring_bitmap_free(&rb1)
-	roaring_bitmap_free(&rb2)
-	roaring_bitmap_free(&rb3)
+	free(&rb1)
+	free(&rb2)
+	free(&rb3)
 }
 
 @(test)
-test_union_array_and_bitmap :: proc(t: ^testing.T) {
-	rb1, _ := roaring_bitmap_init()
+test_or_array_and_bitmap :: proc(t: ^testing.T) {
+	rb1, _ := init()
 	add(&rb1, 0)
 	add(&rb1, 1)
 
-	rb2, _ := roaring_bitmap_init()
+	rb2, _ := init()
 	for i in 0..=4096 {
 		add(&rb2, i)
 	}
 
-	rb3, _ := roaring_union(rb1, rb2)
+	rb3, _ := or(rb1, rb2)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
@@ -390,24 +390,24 @@ test_union_array_and_bitmap :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb3, 4096), true)
 	testing.expect_value(t, contains(rb3, 4097), false)
 
-	roaring_bitmap_free(&rb1)
-	roaring_bitmap_free(&rb2)
-	roaring_bitmap_free(&rb3)
+	free(&rb1)
+	free(&rb2)
+	free(&rb3)
 }
 
 @(test)
-test_union_bitmap :: proc(t: ^testing.T) {
-	rb1, _ := roaring_bitmap_init()
+test_or_bitmap :: proc(t: ^testing.T) {
+	rb1, _ := init()
 	for i in 0..=4096 {
 		add(&rb1, i)
 	}
 
-	rb2, _ := roaring_bitmap_init()
+	rb2, _ := init()
 	for i in 123456789..=123456800 {
 		add(&rb2, i)
 	}
 
-	rb3, _ := roaring_union(rb1, rb2)
+	rb3, _ := or(rb1, rb2)
 	testing.expect_value(t, len(rb3.containers), 2)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 4095), true)
@@ -418,15 +418,15 @@ test_union_bitmap :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb3, 123456800), true)
 	testing.expect_value(t, contains(rb3, 123456801), false)
 
-	roaring_bitmap_free(&rb1)
-	roaring_bitmap_free(&rb2)
-	roaring_bitmap_free(&rb3)
+	free(&rb1)
+	free(&rb2)
+	free(&rb3)
 }
 
 @(test)
 test_strict_methods :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	// Ensure we don't prefill the packed array with any 0 values
 	// after initializing.
@@ -468,8 +468,8 @@ test_strict_methods :: proc(t: ^testing.T) {
 
 @(test)
 test_bitmap_container_count_runs :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	for i in 0..<10000 {
 		if i % 2 == 0 {
@@ -485,8 +485,8 @@ test_bitmap_container_count_runs :: proc(t: ^testing.T) {
 
 @(test)
 test_should_convert_bitmap_container_to_run_container :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	for i in 0..<5000 {
 		add(&rb, i)
@@ -495,7 +495,7 @@ test_should_convert_bitmap_container_to_run_container :: proc(t: ^testing.T) {
 	bc, ok := rb.containers[0].(Bitmap_Container)
 	testing.expect_value(t, ok, true)
 
-	should := should_convert_container_bitmap_to_run(bc)
+	should := bitmap_container_should_convert_to_run(bc)
 	testing.expect_value(t, should, true)
 }
 
@@ -519,7 +519,7 @@ test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
 		}
 	}
 
-	rc, _ := convert_container_bitmap_to_run(bc)
+	rc, _ := bitmap_container_convert_to_run_container(bc)
 	defer run_container_free(rc)
 	exp_run: Run
 
@@ -540,7 +540,7 @@ test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
 	bitmap_container_add(&bc, 0)
 	testing.expect_value(t, bitmap_container_contains(bc, 0), true)
 
-	rc, _ := convert_container_bitmap_to_run(bc)
+	rc, _ := bitmap_container_convert_to_run_container(bc)
 	defer run_container_free(rc)
 
 	exp_run := Run{start=0, length=1}
@@ -548,7 +548,7 @@ test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_intersection_array_with_run :: proc(t: ^testing.T) {
+test_and_array_with_run :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	ac, _ := array_container_init()
 	defer array_container_free(ac)
@@ -563,7 +563,7 @@ test_intersection_array_with_run :: proc(t: ^testing.T) {
 	run_container_add(&rc, 4)
 	run_container_add(&rc, 7)
 
-	new_ac, _ := intersection_array_with_run(ac, rc)
+	new_ac, _ := array_container_and_run_container(ac, rc)
 	defer array_container_free(new_ac)
 
 	testing.expect_value(t, new_ac.cardinality, 2)
@@ -578,7 +578,7 @@ test_intersection_array_with_run :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_intersection_bitmap_with_run_array :: proc(t: ^testing.T) {
+test_and_bitmap_with_run_array :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	bc, _ := bitmap_container_init()
 	defer bitmap_container_free(bc)
@@ -593,7 +593,7 @@ test_intersection_bitmap_with_run_array :: proc(t: ^testing.T) {
 	run_container_add(&rc, 4)
 	run_container_add(&rc, 7)
 
-	c, _ := intersection_bitmap_with_run(bc, rc)
+	c, _ := bitmap_container_and_run_container(bc, rc)
 	new_ac := c.(Array_Container)
 	defer array_container_free(new_ac)
 
@@ -609,7 +609,7 @@ test_intersection_bitmap_with_run_array :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_intersection_bitmap_with_run_bitmap :: proc(t: ^testing.T) {
+test_and_bitmap_with_run_bitmap :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	bc, _ := bitmap_container_init()
 	defer bitmap_container_free(bc)
@@ -625,7 +625,7 @@ test_intersection_bitmap_with_run_bitmap :: proc(t: ^testing.T) {
 		run_container_add(&rc, u16be(i))
 	}
 
-	c, _ := intersection_bitmap_with_run(bc, rc)
+	c, _ := bitmap_container_and_run_container(bc, rc)
 	new_ac := c.(Array_Container)
 	defer array_container_free(new_ac)
 
@@ -651,7 +651,7 @@ test_runs_overlap :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_intersection_run_with_run :: proc(t: ^testing.T) {
+test_and_run_with_run :: proc(t: ^testing.T) {
 	rc1, _ := run_container_init()
 	defer run_container_free(rc1)
 
@@ -664,7 +664,7 @@ test_intersection_run_with_run :: proc(t: ^testing.T) {
 	run_container_add(&rc2, 3)
 	run_container_add(&rc2, 4)
 
-	c, _ := intersection_run_with_run(rc1, rc2)
+	c, _ := run_container_and_run_container(rc1, rc2)
 	new_ac, ok := c.(Array_Container)
 	defer array_container_free(new_ac)
 
@@ -674,7 +674,7 @@ test_intersection_run_with_run :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_union_array_with_run :: proc(t: ^testing.T) {
+test_or_array_with_run :: proc(t: ^testing.T) {
 	ac, _ := array_container_init()
 	defer array_container_free(ac)
 
@@ -694,7 +694,7 @@ test_union_array_with_run :: proc(t: ^testing.T) {
 		run_container_add(&rc, u16be(i))
 	}
 
-	c, _ := union_array_with_run(ac, rc)
+	c, _ := array_container_or_run_container(ac, rc)
 	new_rc, ok := c.(Run_Container)
 	defer run_container_free(new_rc)
 
@@ -708,7 +708,7 @@ test_union_array_with_run :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_union_bitmap_with_run :: proc(t: ^testing.T) {
+test_bitmap_container_or_run_container :: proc(t: ^testing.T) {
 	bc, _ := bitmap_container_init()
 	defer bitmap_container_free(bc)
 
@@ -722,7 +722,7 @@ test_union_bitmap_with_run :: proc(t: ^testing.T) {
 	run_container_add(&rc, 3)
 	run_container_add(&rc, 6)
 
-	new_bc, _ := union_bitmap_with_run(bc, rc)
+	new_bc, _ := bitmap_container_or_run_container(bc, rc)
 	defer bitmap_container_free(new_bc)
 
 	testing.expect_value(t, new_bc.cardinality, 5)
@@ -739,7 +739,7 @@ test_union_bitmap_with_run :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_union_run_with_run :: proc(t: ^testing.T) {
+test_or_run_with_run :: proc(t: ^testing.T) {
 	rc1, _ := run_container_init()
 	defer run_container_free(rc1)
 	run_container_add(&rc1, 6)
@@ -753,7 +753,7 @@ test_union_run_with_run :: proc(t: ^testing.T) {
 
 	// After running the union on two Run_Container, the result will be
 	// downgraded to a Array_Container (new cardinality is <= 4096).
-	c, _ := union_run_with_run(rc1, rc2)
+	c, _ := run_container_or_run_container(rc1, rc2)
 	ac, ok := c.(Array_Container)
 	defer array_container_free(ac)
 
@@ -772,8 +772,8 @@ test_union_run_with_run :: proc(t: ^testing.T) {
 
 @(test)
 test_container_is_full :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	// Should end up with two containers, the first one is full at
 	// 65536 values and the second one half full.
@@ -809,8 +809,8 @@ test_container_is_full :: proc(t: ^testing.T) {
 
 @(test)
 test_flip_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	flip(&rb, 0, 1000)
 
@@ -825,8 +825,8 @@ test_flip_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 
 @(test)
 test_flip_with_full_container :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	for i in 0..<65536 {
 		add(&rb, i)
@@ -843,8 +843,8 @@ test_flip_with_full_container :: proc(t: ^testing.T) {
 
 @(test)
 test_flip_array_container :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	add(&rb, 3)
 	add(&rb, 5)
@@ -873,8 +873,8 @@ test_flip_array_container :: proc(t: ^testing.T) {
 
 @(test)
 test_flip_array_container_remove :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	add(&rb, 3)
 	add(&rb, 4)
@@ -895,8 +895,8 @@ test_flip_array_container_remove :: proc(t: ^testing.T) {
 
 @(test)
 test_flip_bitmap_container :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	for i in 0..<5000 {
 		add(&rb, i)
@@ -934,8 +934,8 @@ test_flip_bitmap_container :: proc(t: ^testing.T) {
 
 @(test)
 test_flip_run_container :: proc(t: ^testing.T) {
-	rb, _ := roaring_bitmap_init()
-	defer roaring_bitmap_free(&rb)
+	rb, _ := init()
+	defer free(&rb)
 
 	for i in 0..<60000 {
 		if i > 0 && i < 4 {
