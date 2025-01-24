@@ -584,42 +584,13 @@ flip_within_container :: proc(
 	// increases the number of runs by at most one. Thus, there is a capacity
 	// problem only when the number of runs increases and the original runs fit
 	// exactly within the array."
+	//
+	// FIXME: Currently doing this the cheap way by converting to a bitmap, then flipping,
+	// and then converting back to either a Run_Container or Bitmap_Container.
 	case Run_Container:
-		idx, _ := run_list_binary_search(c.run_list, int(start))
-		cursor := start
-
-		// FIXME: run_container_add and run_container_remove *each* call a binary
-		// search on the Run_List in this container, so this is *not* efficient.
-		//
-		// Are there some utils for expanding/collapsing Run objects that we can
-		// use here that are currently in run_container_add/run_container_remove.
-		for cursor <= end {
-			// NOTE: Do this inside the loop as we are appending to the Run_List as
-			// we go here. We need to calc every time we iterate.
-			if idx >= len(c.run_list) {
-				break
-			}
-
-			// Set values up until the Run begins.
-			run := c.run_list[idx]
-			for int(cursor) < run.start && cursor <= end {
-				run_container_add(&c, cursor)
-				cursor += 1
-			}
-
-			// Unset values *inside* the Run.
-			for int(cursor) < run_end_position(run) && cursor <= end {
-				run_container_remove(&c, cursor)
-				cursor += 1
-			}
-			idx += 1
-		}
-
-		// Beyond the last Run, we want to set all remaing values to 1.
-		for cursor <= end {
-			run_container_add(&c, cursor)
-			cursor += 1
-		}
+		rb.containers[container_idx] = convert_container_run_to_bitmap(c) or_return
+		flip_within_container(rb, container_idx, start, end)
+		container = convert_container_optimal(rb.containers[container_idx]) or_return
 	}
 
 	
@@ -1908,6 +1879,8 @@ should_convert_container_bitmap_to_run :: proc(bc: Bitmap_Container) -> bool {
 
 // Converts a given container into its optimal representation, using a
 // variety of heuristics.
+//
+// TODO: Should this always be done in-place??
 @(private)
 convert_container_optimal :: proc(
 	container: Container,
