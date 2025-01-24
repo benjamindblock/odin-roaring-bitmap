@@ -144,7 +144,7 @@ run_container_contains :: proc(rc: Run_Container, n: u16be) -> bool {
 
 // Finds the cardinality of a Run_Container by summing the length of each run.
 @(private)
-run_container_calculate_cardinality :: proc(rc: Run_Container) -> (acc: int) {
+run_container_get_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 	rl := rc.run_list
 
 	if len(rl) == 0 {
@@ -391,4 +391,3 @@ run_container_convert_to_bitmap_container :: proc(
 	run_container_free(rc)
 	return bc, nil
 }
-

@@ -12,7 +12,7 @@ container_get_cardinality :: proc(container: Container) -> (cardinality: int) {
 	case Bitmap_Container:
 		cardinality = c.cardinality
 	case Run_Container:
-		cardinality = run_container_calculate_cardinality(c)
+		cardinality = run_container_get_cardinality(c)
 	}
 	return cardinality
 }
@@ -69,7 +69,7 @@ container_convert_to_optimal :: proc(
 			optimal = c
 		}
 	case Run_Container:
-		cardinality := run_container_calculate_cardinality(c)
+		cardinality := run_container_get_cardinality(c)
 
 		// "If the run container has cardinality greater than 4096 values, then it
 		// must contain no more than ⌈(8192 − 2)/4⌉ = 2047 runs."

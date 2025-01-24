@@ -164,7 +164,7 @@ bitmap_container_should_convert_to_run :: proc(bc: Bitmap_Container) -> bool {
 
 // Finds the cardinality of a Bitmap_Container by finding all the set bits.
 @(private)
-bitmap_container_calculate_cardinality :: proc(bc: Bitmap_Container) -> (acc: int) {
+bitmap_container_get_cardinality :: proc(bc: Bitmap_Container) -> (acc: int) {
 	for byte in bc.bitmap {
 		if byte != 0 {
 			acc += intrinsics.count_ones(int(byte))
@@ -327,7 +327,7 @@ bitmap_container_or_run_container :: proc(
 		bitmap_container_set_range(&new_bc, run.start, run.length)
 	}
 
-	new_bc.cardinality = bitmap_container_calculate_cardinality(new_bc)
+	new_bc.cardinality = bitmap_container_get_cardinality(new_bc)
 	return new_bc, nil
 }
 
@@ -404,4 +404,3 @@ bitmap_container_convert_to_run_container :: proc(
 	bitmap_container_free(bc)
 	return rc, nil
 }
-

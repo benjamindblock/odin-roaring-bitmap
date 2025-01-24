@@ -60,7 +60,7 @@ array_container_contains :: proc(ac: Array_Container, n: u16be) -> (found: bool)
 
 // Finds the cardinality of a Array_Container.
 @(private)
-array_container_calculate_cardinality :: proc(ac: Array_Container) -> int {
+array_container_get_cardinality :: proc(ac: Array_Container) -> int {
 	return len(ac.packed_array)
 }
 
@@ -286,4 +286,3 @@ array_container_convert_to_bitmap_container :: proc(
 	array_container_free(ac)
 	return bc, nil
 }
-

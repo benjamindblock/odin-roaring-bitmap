@@ -277,9 +277,24 @@ strict_remove :: proc(
 	return remove(rb, n)
 }
 
-// Flips all the bits from a start range (inclusive) to end (inclusive)
-// in a Roaring_Bitmap.
-flip :: proc(rb: ^Roaring_Bitmap, start: int, end: int) -> (ok: bool, err: runtime.Allocator_Error) {
+// Flips all the bits from a start range (inclusive) to end (inclusive) in a Roaring_Bitmap
+// and returns the result as a new Roaring_Bitmap.
+flip :: proc(
+	rb: Roaring_Bitmap,
+	start: int,
+	end: int,
+) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
+	new_rb = clone(rb) or_return
+	flip_inplace(&new_rb, start, end) or_return
+	return new_rb, nil
+}
+
+// Flips all the bits from a start range (inclusive) to end (inclusive) in a Roaring_Bitmap.
+flip_inplace :: proc(
+	rb: ^Roaring_Bitmap,
+	start: int,
+	end: int,
+) -> (ok: bool, err: runtime.Allocator_Error) {
 	start_be := u32be(start)
 	start_i := most_significant(start_be)
 	start_j := least_significant(start_be)
