@@ -4,6 +4,18 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:slice"
 
+@(private)
+container_free :: proc(container: Container) {
+	switch c in container {
+	case Array_Container:
+		array_container_free(c)
+	case Bitmap_Container:
+		bitmap_container_free(c)
+	case Run_Container:
+		run_container_free(c)
+	}
+}
+
 @(private, require_results)
 container_get_cardinality :: proc(container: Container) -> (cardinality: int) {
 	switch c in container {
@@ -151,7 +163,7 @@ container_flip :: proc(
 	// want to flip the full range of the container, then delete it.
 	container := rb.containers[container_idx]
 	if container_is_full(container) && start == 0 && end == 65535 {
-		roaring_bitmap_free_at(rb, container_idx)
+		free_at(rb, container_idx)
 		return
 	}
 
@@ -272,7 +284,7 @@ container_flip :: proc(
 	
 	// Remove this container entirely if we no longer have any elements in it.
 	if container_get_cardinality(container) == 0 {
-		roaring_bitmap_free_at(rb, container_idx)
+		free_at(rb, container_idx)
 	} else {
 		rb.containers[container_idx] = container
 	}

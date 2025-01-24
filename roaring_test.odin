@@ -308,6 +308,23 @@ test_and_array :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_and_inplace_array :: proc(t: ^testing.T) {
+	rb1, _ := init()
+	add(&rb1, 0)
+	add(&rb1, 1)
+
+	rb2, _ := init()
+	add(&rb2, 1)
+
+	and_inplace(&rb1, rb2)
+	testing.expect_value(t, contains(rb1, 0), false)
+	testing.expect_value(t, contains(rb1, 1), true)
+
+	free(&rb1)
+	free(&rb2)
+}
+
+@(test)
 test_and_array_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
 	add(&rb1, 0)
@@ -332,67 +349,103 @@ test_and_array_and_bitmap :: proc(t: ^testing.T) {
 @(test)
 test_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
+	defer free(&rb1)
 	for i in 0..=4096 {
 		add(&rb1, i)
 	}
 
 	rb2, _ := init()
+	defer free(&rb2)
 	for i in 4096..=9999 {
 		add(&rb2, i)
 	}
 
 	rb3, _ := and(rb1, rb2)
+	defer free(&rb3)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 4095), false)
 	testing.expect_value(t, contains(rb3, 4096), true)
 	testing.expect_value(t, contains(rb3, 4097), false)
-
-	free(&rb1)
-	free(&rb2)
-	free(&rb3)
 }
 
 @(test)
 test_or_array :: proc(t: ^testing.T) {
 	rb1, _ := init()
+	defer free(&rb1)
 	add(&rb1, 0)
 	add(&rb1, 1)
 
 	rb2, _ := init()
+	defer free(&rb2)
 	add(&rb2, 1)
 
 	rb3, _ := or(rb1, rb2)
+	defer free(&rb3)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
+}
 
-	free(&rb1)
-	free(&rb2)
-	free(&rb3)
+@(test)
+test_or_inplace_array :: proc(t: ^testing.T) {
+	rb1, _ := init()
+	defer free(&rb1)
+	add(&rb1, 0)
+	add(&rb1, 1)
+
+	rb2, _ := init()
+	defer free(&rb2)
+	add(&rb2, 1)
+
+	or_inplace(&rb1, rb2)
+	testing.expect_value(t, len(rb1.containers), 1)
+	testing.expect_value(t, contains(rb1, 0), true)
+	testing.expect_value(t, contains(rb1, 1), true)
 }
 
 @(test)
 test_or_array_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
+	defer free(&rb1)
 	add(&rb1, 0)
 	add(&rb1, 1)
 
 	rb2, _ := init()
+	defer free(&rb2)
 	for i in 0..=4096 {
 		add(&rb2, i)
 	}
 
 	rb3, _ := or(rb1, rb2)
+	defer free(&rb3)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
 	testing.expect_value(t, contains(rb3, 2), true)
 	testing.expect_value(t, contains(rb3, 4096), true)
 	testing.expect_value(t, contains(rb3, 4097), false)
+}
 
-	free(&rb1)
-	free(&rb2)
-	free(&rb3)
+@(test)
+test_or_inplace_array_and_bitmap :: proc(t: ^testing.T) {
+	rb1, _ := init()
+	defer free(&rb1)
+	add(&rb1, 0)
+	add(&rb1, 1)
+
+	rb2, _ := init()
+	defer free(&rb2)
+	for i in 0..=4096 {
+		add(&rb2, i)
+	}
+
+	or_inplace(&rb1, rb2)
+	testing.expect_value(t, len(rb1.containers), 1)
+	testing.expect_value(t, contains(rb1, 0), true)
+	testing.expect_value(t, contains(rb1, 1), true)
+	testing.expect_value(t, contains(rb1, 2), true)
+	testing.expect_value(t, contains(rb1, 4096), true)
+	testing.expect_value(t, contains(rb1, 4097), false)
 }
 
 @(test)

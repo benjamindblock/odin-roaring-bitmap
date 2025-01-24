@@ -111,7 +111,7 @@ init :: proc(
 
 free :: proc(rb: ^Roaring_Bitmap) {
 	for i, _ in rb.containers {
-		roaring_bitmap_free_at(rb, i)
+		free_at(rb, i)
 	}
 	delete(rb.containers)
 	delete(rb.cindex)
@@ -155,19 +155,11 @@ cindex_ordered_insert :: proc(rb: ^Roaring_Bitmap, n: u16be) -> (ok: bool, err: 
 
 // Removes a container and its position in the index from the Roaring_Bitmap.
 @(private)
-roaring_bitmap_free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
+free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	container := rb.containers[i]
-	switch c in container {
-	case Array_Container:
-		array_container_free(c)
-	case Bitmap_Container:
-		bitmap_container_free(c)
-	case Run_Container:
-		run_container_free(c)
-	}
+	container_free(container)
 	delete_key(&rb.containers, i)
 	cindex_ordered_remove(rb, i)
-
 	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 }
 
@@ -257,7 +249,7 @@ remove :: proc(
 	// container + key.
 	container = &rb.containers[i]
 	if container_get_cardinality(container^) == 0 {
-		roaring_bitmap_free_at(rb, i)
+		free_at(rb, i)
 	}
 
 	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
@@ -452,12 +444,65 @@ and :: proc(
 // Performs an AND between two bitmaps and stores the results inside the
 // first bitmap.
 //
-// TODO: Implement this.
+// TODO: The underlying methods *do not* modify the containers in place,
+// so here we are changing data in-place, but still requiring intermediate
+// allocations to take place. Is there a way to do it all in place?
 and_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
 	allocator := context.allocator,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
+	for k1, v1 in rb1.containers {
+		// Always delete the original container from the first Roaring_Bitmap as we will
+		// either be: 
+		// 1. Replacing it with a new AND'ed container
+		// 2. Ignoring it because it does not exist in the second Roaring_Bitmap
+		//
+		// The last loop at the end will ensure that we update the cindex appropriately.
+		defer container_free(v1)
+
+		if k1 in rb2.containers {
+			v2 := rb2.containers[k1]
+
+			switch c1 in v1 {
+			case Array_Container:
+				switch c2 in v2 {
+				case Array_Container:
+					rb1.containers[k1] = array_container_and_array_container(c1, c2, allocator) or_return
+				case Bitmap_Container:
+					rb1.containers[k1] = array_container_and_bitmap_container(c1, c2, allocator) or_return
+				case Run_Container:
+					rb1.containers[k1] = array_container_and_run_container(c1, c2, allocator) or_return
+				}
+			case Bitmap_Container:
+				switch c2 in v2 {
+				case Array_Container:
+					rb1.containers[k1] = array_container_and_bitmap_container(c2, c1, allocator) or_return
+				case Bitmap_Container:
+					rb1.containers[k1] = bitmap_container_and_bitmap_container(c1, c2, allocator) or_return
+				case Run_Container:
+					rb1.containers[k1] = bitmap_container_and_run_container(c1, c2, allocator) or_return
+				}
+			case Run_Container:
+				switch c2 in v2 {
+				case Array_Container:
+					rb1.containers[k1] = array_container_and_run_container(c2, c1, allocator) or_return
+				case Bitmap_Container:
+					rb1.containers[k1] = bitmap_container_and_run_container(c2, c1, allocator) or_return
+				case Run_Container:
+					rb1.containers[k1] = run_container_and_run_container(c1, c2, allocator) or_return
+				}
+			}
+		}
+	}
+
+	// Remove any empty containers after performing the bitwise AND.
+	for key, container in rb1.containers {
+		if container_get_cardinality(container) == 0 {
+			free_at(rb1, key)
+		}
+	}
+
 	return true, nil
 }
 
@@ -530,12 +575,65 @@ or :: proc(
 // Performs an OR between two bitmaps and stores the results inside the
 // first bitmap.
 //
-// TODO: Implement this.
+// TODO: The underlying methods *do not* modify the containers in place,
+// so here we are changing data in-place, but still requiring intermediate
+// allocations to take place. Is there a way to do it all in place?
 or_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
 	allocator := context.allocator,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
+	for k1, v1 in rb1.containers {
+		// If the container in the first Roaring_Bitmap does not exist in the second,
+		// then just skip processing this. The result will be the same.
+		if !(k1 in rb2.containers) {
+			continue
+		}
+
+		// Always delete the original container from the first Roaring_Bitmap because
+		// it will be replaced with the new OR'ed container
+		defer container_free(v1)
+
+		v2 := rb2.containers[k1]
+		switch c1 in v1 {
+		case Array_Container:
+			switch c2 in v2 {
+			case Array_Container:
+				rb1.containers[k1] = array_container_or_array_container(c1, c2, allocator) or_return
+			case Bitmap_Container:
+				rb1.containers[k1] = array_container_or_bitmap_container(c1, c2, allocator) or_return
+			case Run_Container:
+				rb1.containers[k1] = array_container_or_run_container(c1, c2, allocator) or_return
+			}
+		case Bitmap_Container:
+			switch c2 in v2 {
+			case Array_Container:
+				rb1.containers[k1] = array_container_or_bitmap_container(c2, c1, allocator) or_return
+			case Bitmap_Container:
+				rb1.containers[k1] = bitmap_container_or_bitmap_container(c1, c2, allocator) or_return
+			case Run_Container:
+				rb1.containers[k1] = bitmap_container_or_run_container(c1, c2, allocator) or_return
+			}
+		case Run_Container:
+			switch c2 in v2 {
+			case Array_Container:
+				rb1.containers[k1] = array_container_or_run_container(c2, c1, allocator) or_return
+			case Bitmap_Container:
+				rb1.containers[k1] = bitmap_container_or_run_container(c2, c1, allocator) or_return
+			case Run_Container:
+				rb1.containers[k1] = run_container_or_run_container(c1, c2, allocator) or_return
+			}
+		}
+	}
+
+	// Lastly, add any containers in the second Roaring_Bitmap that are not present in the first.
+	for k2, v2 in rb2.containers {
+		if !(k2 in rb1.containers) {
+			rb1.containers[k2] = container_clone(v2, allocator) or_return
+			cindex_ordered_insert(rb1, k2)
+		}
+	}
+
 	return true, nil
 }
 
