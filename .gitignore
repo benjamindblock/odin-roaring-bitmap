@@ -3,3 +3,5 @@
 tmp/
 */**/odin-roaring-bitmap.dSYM/
 */**/odin-roaring-bitmap
+*/**/benchmark-odin-roaring-bitmap.dSYM/
+*/**/benchmark-odin-roaring-bitmap

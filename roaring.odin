@@ -166,15 +166,55 @@ free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 }
 
-to_array :: proc(rb: Roaring_Bitmap) -> []int {
+// Returns all of the set values of a Roaring_Bitmap as an array.
+to_array :: proc(rb: Roaring_Bitmap, allocator := context.allocator) -> []int {
 	rb := rb
 	iterator := make_iterator(&rb)
 
-	acc := make([dynamic]int)
+	acc := make([dynamic]int, allocator)
 	for v in iterate_set_values(&iterator) {
 		append(&acc, v)
 	}
 	return acc[:]
+}
+
+// Prints statistics on the Roaring_Bitmap.
+print_stats :: proc(rb: Roaring_Bitmap) {
+	ac: int
+	bmc: int
+	rcc: int
+
+	for _, container in rb.containers {
+		switch c in container {
+		case Array_Container:
+			ac += 1
+		case Bitmap_Container:
+			bmc += 1
+		case Run_Container:
+			rcc += 1
+		}
+	}
+
+	fmt.println("# of containers", len(rb.cindex))
+	fmt.println("Array_Container:", ac)
+	fmt.println("Bitmap_Container", bmc)
+	fmt.println("Run_Container:", rcc)
+	fmt.println("Size in bytes:", size_in_bytes(rb))
+}
+
+// Prints statistics on the Roaring_Bitmap.
+size_in_bytes :: proc(rb: Roaring_Bitmap) -> (size: int) {
+	for _, container in rb.containers {
+		switch c in container {
+		case Array_Container:
+			size += size_of(c.packed_array)
+		case Bitmap_Container:
+			size += size_of(c.bitmap)
+		case Run_Container:
+			size += size_of(c.run_list)
+		}
+	}
+	return size
 }
 
 // Adds a value to the Roaring_Bitmap. If a container doesn’t already exist

@@ -41,13 +41,18 @@ _main :: proc() {
 	a1 := "Frank Powell"
 	rb1 := movies[a1]
 	fmt.println(a1, "is in", roaring.get_cardinality(rb1), "movies")
+	roaring.print_stats(rb1)
 	
 	a2 := "Marion Leonard"
 	rb2 := movies[a2]
 	fmt.println(a2, "is in", roaring.get_cardinality(rb2), "movies")
-	roaring.and_inplace(&rb1, rb2)
+	roaring.print_stats(rb2)
 
+	roaring.and_inplace(&rb1, rb2)
 	in_common := roaring.to_array(rb1)
+
+	fmt.println(roaring.size_in_bytes(rb1))
+
 	defer delete(in_common)
 	fmt.println("They both appeared in movie ID:", in_common)
 }
