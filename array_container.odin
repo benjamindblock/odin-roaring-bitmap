@@ -166,7 +166,7 @@ array_container_and_run_container :: proc(
 			run := rc.run_list[i]
 			// If the run contains this array value, set it in the new array containing
 			// the intersection and continue at the outer loop with the next array value.
-			if run_contains(run, int(array_val)) {
+			if run_contains(run, array_val) {
 				array_container_add(&new_ac, array_val) or_return
 				continue array_loop
 			} else {

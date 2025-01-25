@@ -38,7 +38,7 @@ run_container_add :: proc(
 	// If we did not find a Run that could contain this N-value, start a new Run
 	// and add it to the Run_List.
 	if !found {
-		new_run := Run{start = n, length = 1}
+		new_run := Run{start = n, length = 0}
 		inject_at(&rc.run_list, i, new_run) or_return
 		return true, nil
 	}
@@ -48,12 +48,12 @@ run_container_add :: proc(
 	run_to_expand := &rc.run_list[i]
 
 	// Expand the matching Run backwards if needed.
-	if run_to_expand.start - 1 == n {
+	if run_before_start_pos(run_to_expand^) == n {
 		run_to_expand.start -= 1
 		run_to_expand.length += 1
 
 		// Merge with the previous run if we need to.
-		if i - 1 >= 0 {
+		if i > 0 {
 			prev_run := rc.run_list[i-1]
 			if run_to_expand.start == run_end_position(prev_run) {
 				run_to_expand.length += prev_run.length
@@ -67,10 +67,10 @@ run_container_add :: proc(
 		run_to_expand.length += 1
 
 		// Merge with the next run if we need to.
-		if i + 1 < len(rc.run_list) {
+		if i + 1 < u16be(len(rc.run_list)) {
 			next_run := rc.run_list[i+1]
 			if run_end_position(run_to_expand^) == next_run.start {
-				run_to_expand.length += next_run.length
+				run_to_expand.length += next_run.length + 1
 				ordered_remove(&rc.run_list, i+1)
 			}
 		}
@@ -89,8 +89,6 @@ run_container_remove :: proc(
 	rc: ^Run_Container,
 	n: u16be,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
-	n := int(n)
-
 	// If we don't find an exact match, we have a problem!
 	// That means the N-value is not actually in the Run_List.
 	i, exact_match := run_list_binary_search(rc.run_list, n)
@@ -117,7 +115,7 @@ run_container_remove :: proc(
 	} else {
 		run1 := Run{
 			start = run_to_check.start,
-			length = (n - run_to_check.start),
+			length = (n - run_to_check.start - 1),
 		}
 		run2 := run_to_check
 
@@ -136,7 +134,7 @@ run_container_contains :: proc(rc: Run_Container, n: u16be) -> bool {
 		return false
 	}
 
-	_, found := run_list_binary_search(rc.run_list, int(n))
+	_, found := run_list_binary_search(rc.run_list, n)
 	return found
 }
 
@@ -150,7 +148,7 @@ run_container_get_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 	}
 
 	for run in rc.run_list {
-		acc += run.length
+		acc += int(run.length + 1)
 	}
 
 	return acc
@@ -160,6 +158,14 @@ run_container_get_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 @(private)
 run_end_position :: proc(run: Run) -> u16be {
 	return run.start + run.length + 1
+}
+
+// Finds the value *before* the start of the given Run. If we are already
+// at zero, then return 0. Because we are using u16be, subtracting one from
+// zero will result in 65535.
+@(private)
+run_before_start_pos :: proc(run: Run) -> u16be {
+	return min(run.start, run.start - 1)
 }
 
 // Checks if two Run structs overlap at all.
@@ -201,7 +207,7 @@ run_contains :: proc(r: Run, n: u16be) -> bool {
 // Eg., run_could_contain(Run{2, 1}, 1) => true (as Run{1, 2} would
 // be the new Run that contains the N-value).
 run_could_contain :: proc(r: Run, n: u16be) -> bool {
-	return n >= (r.start - 1) && n <= run_end_position(r)
+	return n >= run_before_start_pos(r)  && n <= run_end_position(r)
 }
 
 // Searches for a given N-value in a Run_List.

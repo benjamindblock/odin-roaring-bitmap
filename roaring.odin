@@ -720,8 +720,6 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
-	fmt.println("Hello, world!")
-
 	rc, _ := run_container_init()
 	defer run_container_free(rc)
 
@@ -729,14 +727,37 @@ _main :: proc() {
 	run_container_add(&rc, 4)
 	run_container_add(&rc, 0)
 	run_container_add(&rc, 2)
-	run_container_add(&rc, 5)
-	run_container_add(&rc, 1)
-	run_container_remove(&rc, 1)
-	run_container_add(&rc, 1)
 
 	fmt.println(rc)
-	run_container_remove(&rc, 0)
+	// testing.expect_value(t, len(rc.run_list), 2)
+	// testing.expect_value(t, rc.run_list[0], Run{0, 1})
+	// testing.expect_value(t, rc.run_list[1], Run{2, 3})
+
+	run_container_add(&rc, 5)
 	fmt.println(rc)
+	// testing.expect_value(t, len(rc.run_list), 2)
+	// testing.expect_value(t, rc.run_list[0], Run{0, 1})
+	// testing.expect_value(t, rc.run_list[1], Run{2, 4})
+
+	run_container_add(&rc, 1)
+	fmt.println(rc)
+	// testing.expect_value(t, len(rc.run_list), 1)
+	// testing.expect_value(t, rc.run_list[0], Run{0, 6})
+
+	run_container_remove(&rc, 1)
+	fmt.println(rc)
+	// // testing.expect_value(t, rc.run_list[0], Run{0, 1})
+	// // testing.expect_value(t, rc.run_list[1], Run{2, 4})
+
+	// run_container_add(&rc, 1)
+	// fmt.println(rc)
+	// // testing.expect_value(t, len(rc.run_list), 1)
+	// // testing.expect_value(t, rc.run_list[0], Run{0, 6})
+
+	// run_container_remove(&rc, 0)
+	// fmt.println(rc)
+	// // testing.expect_value(t, len(rc.run_list), 1)
+	// // testing.expect_value(t, rc.run_list[0], Run{1, 5})
 }
 
 main :: proc() {

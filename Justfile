@@ -6,7 +6,7 @@ build:
 	odin build . -out:bin/{{name}} -debug {{flags}}
 
 test:
-	odin test . -out:bin/{{name}} {{flags}}
+	odin test . -out:bin/{{name}}
 
 run: build
 	bin/{{name}}

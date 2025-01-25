@@ -6,7 +6,7 @@ Roaring_Bitmap_Iterator :: struct {
 	overall_idx: int,    // Progress amongst all set values
 	container_idx: int,  // The container in the cindex we are in
 	word_idx: int,       // The sub-container position (eg., byte, Run) we are at
-	bit_idx: uint,       // The position in the sub-container
+	bit_idx: u16be,      // The position in the sub-container
 }
 
 make_iterator :: proc(rb: ^Roaring_Bitmap) -> Roaring_Bitmap_Iterator {
@@ -103,7 +103,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 			run := c.run_list[it.word_idx]
 
 			most_significant := key
-			least_significant := run.start + int(it.bit_idx)
+			least_significant := run.start + it.bit_idx
 
 			// Recreate the original value.
 			v = int(transmute(u32be)[2]u16be{most_significant, u16be(least_significant)})
@@ -112,7 +112,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 
 			// If we have reached the end of the Run, advance to the next one
 			// in the Run_List.
-			if int(it.bit_idx) >= run.length {
+			if it.bit_idx >= run.length + 1 {
 				it.bit_idx = 0
 				it.word_idx += 1
 			}

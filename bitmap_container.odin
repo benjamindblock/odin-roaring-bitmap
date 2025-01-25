@@ -78,6 +78,8 @@ bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16be) -> (found: boo
 
 // Sets a range of bits from 0 to 1 in a Bitmap_Container bitmap.
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
+//
+// TODO: Update to u16be params instead of int
 @(private)
 bitmap_container_set_range :: proc(bc: ^Bitmap_Container, start: int, length: int) {
 	end := start + length
@@ -258,18 +260,18 @@ bitmap_container_and_run_container :: proc(
 		// Set the complement of the Run_List to be zero.
 		for run, i in rc.run_list {
 			if i == 0 && run.start > 0 {
-				bitmap_container_unset_range(&new_bc, 0, run.length)
+				bitmap_container_unset_range(&new_bc, 0, int(run.length + 1))
 			} else if i > 0 {
 				prev_run := rc.run_list[i - 1]
 				complement_start := run.start - prev_run.start + 1
 				complement_length := run.start - complement_start
-				bitmap_container_unset_range(&new_bc, complement_start, complement_length)
+				bitmap_container_unset_range(&new_bc, int(complement_start), int(complement_length))
 			}
 		}
 
 		// Set any remaining bits after the last Run to be 0.
 		last_run := rc.run_list[len(rc.run_list) - 1]
-		unset_start := run_end_position(last_run) + 1
+		unset_start := int(run_end_position(last_run) + 1)
 		unset_length := (BYTES_PER_BITMAP * 8) - unset_start
 		bitmap_container_unset_range(&new_bc, unset_start, unset_length)
 
@@ -324,7 +326,7 @@ bitmap_container_or_run_container :: proc(
 	new_bc = c.(Bitmap_Container)
 
 	for run in rc.run_list {
-		bitmap_container_set_range(&new_bc, run.start, run.length)
+		bitmap_container_set_range(&new_bc, int(run.start), int(run.length + 1))
 	}
 
 	new_bc.cardinality = bitmap_container_get_cardinality(new_bc)
@@ -395,7 +397,7 @@ bitmap_container_convert_to_run_container :: proc(
 			y = k + 8 * (i - 1)
 		}
 
-		run := Run{start=x, length=(y - x)}
+		run := Run{start=u16be(x), length=u16be(y - x - 1)}
 		append(&rc.run_list, run)
 
 		byte = byte & (byte + 1)

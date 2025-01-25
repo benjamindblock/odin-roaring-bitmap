@@ -1,6 +1,7 @@
 package roaring
 
 import "base:runtime"
+import "core:fmt"
 import "core:slice"
 import "core:testing"
 
@@ -187,29 +188,29 @@ test_setting_values_for_run_container_complex :: proc(t: ^testing.T) {
 	run_container_add(&rc, 2)
 
 	testing.expect_value(t, len(rc.run_list), 2)
-	testing.expect_value(t, rc.run_list[0], Run{0, 1})
-	testing.expect_value(t, rc.run_list[1], Run{2, 3})
+	testing.expect_value(t, rc.run_list[0], Run{0, 0})
+	testing.expect_value(t, rc.run_list[1], Run{2, 2})
 
 	run_container_add(&rc, 5)
 	testing.expect_value(t, len(rc.run_list), 2)
-	testing.expect_value(t, rc.run_list[0], Run{0, 1})
-	testing.expect_value(t, rc.run_list[1], Run{2, 4})
+	testing.expect_value(t, rc.run_list[0], Run{0, 0})
+	testing.expect_value(t, rc.run_list[1], Run{2, 3})
 
 	run_container_add(&rc, 1)
 	testing.expect_value(t, len(rc.run_list), 1)
-	testing.expect_value(t, rc.run_list[0], Run{0, 6})
+	testing.expect_value(t, rc.run_list[0], Run{0, 5})
 
 	run_container_remove(&rc, 1)
-	testing.expect_value(t, rc.run_list[0], Run{0, 1})
-	testing.expect_value(t, rc.run_list[1], Run{2, 4})
+	testing.expect_value(t, rc.run_list[0], Run{0, 0})
+	testing.expect_value(t, rc.run_list[1], Run{2, 3})
 
 	run_container_add(&rc, 1)
 	testing.expect_value(t, len(rc.run_list), 1)
-	testing.expect_value(t, rc.run_list[0], Run{0, 6})
+	testing.expect_value(t, rc.run_list[0], Run{0, 5})
 
 	run_container_remove(&rc, 0)
 	testing.expect_value(t, len(rc.run_list), 1)
-	testing.expect_value(t, rc.run_list[0], Run{1, 5})
+	testing.expect_value(t, rc.run_list[0], Run{1, 4})
 }
 
 @(test)
@@ -235,7 +236,7 @@ test_converting_from_bitmap_to_run_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, rc_ok, true)
 	testing.expect_value(t, run_container_get_cardinality(rc), 5000)
 
-	exp_run := Run{start=0, length=5000}
+	exp_run := Run{start=0, length=4999}
 	testing.expect_value(t, rc.run_list[0], exp_run)
 }
 
@@ -576,13 +577,13 @@ test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
 	defer run_container_free(rc)
 	exp_run: Run
 
-	exp_run = Run{start=1, length=2}
+	exp_run = Run{start=1, length=1}
 	testing.expect_value(t, rc.run_list[0], exp_run)
 
-	exp_run = Run{start=4, length=6}
+	exp_run = Run{start=4, length=5}
 	testing.expect_value(t, rc.run_list[1], exp_run)
 
-	exp_run = Run{start=12, length=1}
+	exp_run = Run{start=12, length=0}
 	testing.expect_value(t, rc.run_list[2], exp_run)
 }
 
@@ -596,7 +597,7 @@ test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
 	rc, _ := bitmap_container_convert_to_run_container(bc)
 	defer run_container_free(rc)
 
-	exp_run := Run{start=0, length=1}
+	exp_run := Run{start=0, length=0}
 	testing.expect_value(t, rc.run_list[0], exp_run)
 }
 
@@ -699,8 +700,8 @@ test_runs_overlap :: proc(t: ^testing.T) {
 	testing.expect_value(t, runs_overlap(Run{0, 1}, Run{0, 2}), true)
 	testing.expect_value(t, runs_overlap(Run{0, 1}, Run{0, 2}), true)
 	testing.expect_value(t, runs_overlap(Run{0, 1}, Run{0, 1}), true)
-	testing.expect_value(t, runs_overlap(Run{0, 1}, Run{1, 1}), false)
-	testing.expect_value(t, runs_overlap(Run{1, 1}, Run{0, 1}), false)
+	testing.expect_value(t, runs_overlap(Run{0, 0}, Run{1, 1}), false)
+	testing.expect_value(t, runs_overlap(Run{1, 1}, Run{0, 0}), false)
 }
 
 @(test)
@@ -754,10 +755,10 @@ test_or_array_with_run :: proc(t: ^testing.T) {
 	testing.expect_value(t, ok, true)
 	testing.expect_value(t, container_get_cardinality(new_rc), 5855)
 	testing.expect_value(t, len(new_rc.run_list), 4)
-	testing.expect_value(t, new_rc.run_list[0], Run{0, 1})
-	testing.expect_value(t, new_rc.run_list[1], Run{2, 3})
-	testing.expect_value(t, new_rc.run_list[2], Run{6, 1})
-	testing.expect_value(t, new_rc.run_list[3], Run{150, 5850})
+	testing.expect_value(t, new_rc.run_list[0], Run{0, 0})
+	testing.expect_value(t, new_rc.run_list[1], Run{2, 2})
+	testing.expect_value(t, new_rc.run_list[2], Run{6, 0})
+	testing.expect_value(t, new_rc.run_list[3], Run{150, 5849})
 }
 
 @(test)
@@ -851,13 +852,13 @@ test_container_is_full :: proc(t: ^testing.T) {
 	testing.expect_value(t, rc1_ok, true)
 	testing.expect_value(t, len(rc1.run_list), 1)
 	testing.expect_value(t, container_is_full(rc1), true)
-	testing.expect_value(t, rc1.run_list[0], Run{0, 65536})
+	testing.expect_value(t, rc1.run_list[0], Run{0, 65535})
 
 	rc2, rc2_ok := rb.containers[1].(Run_Container)
 	testing.expect_value(t, rc2_ok, true)
 	testing.expect_value(t, len(rc2.run_list), 1)
 	testing.expect_value(t, container_is_full(rc2), false)
-	testing.expect_value(t, rc2.run_list[0], Run{0, 34465})
+	testing.expect_value(t, rc2.run_list[0], Run{0, 34464})
 }
 
 @(test)
@@ -874,7 +875,7 @@ test_flip_inplace_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 	testing.expect_value(t, rc1_ok, true)
 	testing.expect_value(t, container_get_cardinality(rc1), 1001)
 	testing.expect_value(t, len(rc1.run_list), 1)
-	testing.expect_value(t, rc1.run_list[0], Run{0, 1001})
+	testing.expect_value(t, rc1.run_list[0], Run{0, 1000})
 }
 
 @(test)
@@ -946,7 +947,7 @@ test_flip_inplace_array_container_remove :: proc(t: ^testing.T) {
 	rc, rc_ok := rb.containers[rb.cindex[0]].(Run_Container)
 	testing.expect_value(t, rc_ok, true)
 	testing.expect_value(t, len(rc.run_list), 1)
-	testing.expect_value(t, rc.run_list[0], Run{3, 2})
+	testing.expect_value(t, rc.run_list[0], Run{3, 1})
 }
 
 @(test)
@@ -1009,9 +1010,9 @@ test_flip_inplace_run_container :: proc(t: ^testing.T) {
 	rc, rc_ok := rb.containers[rb.cindex[0]].(Run_Container)
 	testing.expect_value(t, rc_ok, true)
 	testing.expect_value(t, len(rc.run_list), 3)
-	testing.expect_value(t, rc.run_list[0], Run{0, 4})
-	testing.expect_value(t, rc.run_list[1], Run{6, 59991})
-	testing.expect_value(t, rc.run_list[2], Run{60000, 4})
+	testing.expect_value(t, rc.run_list[0], Run{0, 3})
+	testing.expect_value(t, rc.run_list[1], Run{6, 59990})
+	testing.expect_value(t, rc.run_list[2], Run{60000, 3})
 }
 
 @(test)
@@ -1046,4 +1047,3 @@ test_flip_array_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(ac.packed_array), 2)
 	testing.expect_value(t, equal, true)
 }
-

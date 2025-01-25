@@ -55,7 +55,7 @@ container_is_full :: proc(container: Container) -> bool {
 		return res == 0b11111111
 	case Run_Container:
 		rl := c.run_list
-		return len(rl) == 1 && rl[0] == Run{0, 65536}
+		return len(rl) == 1 && rl[0] == Run{0, 65535}
 	}
 	return false
 }
@@ -161,7 +161,7 @@ container_flip :: proc(
 	// zeros and we can create a new container set to 1 (a full Run_List).
 	if !(container_idx in rb.containers) {
 		rc := run_container_init() or_return
-		append(&rc.run_list, Run{int(start), int(end - start) + 1})
+		append(&rc.run_list, Run{start, end - start})
 		rb.containers[container_idx] = rc
 		cindex_ordered_insert(rb, container_idx)
 		return
