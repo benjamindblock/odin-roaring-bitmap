@@ -57,9 +57,11 @@ Bitmap_Container :: struct {
 // of the runs. In most applications, we expect the number of runs to be often
 // small: the computation of the cardinality should not be a bottleneck."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
+//
+// Length is the real length - 1 so that we can fit it into a u16
 Run :: struct {
-	start: int,
-	length: int,
+	start: u16be,
+	length: u16be,
 }
 
 Run_List :: distinct [dynamic]Run
