@@ -720,44 +720,10 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
-	rc, _ := run_container_init()
-	defer run_container_free(rc)
-
-	run_container_add(&rc, 3)
-	run_container_add(&rc, 4)
-	run_container_add(&rc, 0)
-	run_container_add(&rc, 2)
-
-	fmt.println(rc)
-	// testing.expect_value(t, len(rc.run_list), 2)
-	// testing.expect_value(t, rc.run_list[0], Run{0, 1})
-	// testing.expect_value(t, rc.run_list[1], Run{2, 3})
-
-	run_container_add(&rc, 5)
-	fmt.println(rc)
-	// testing.expect_value(t, len(rc.run_list), 2)
-	// testing.expect_value(t, rc.run_list[0], Run{0, 1})
-	// testing.expect_value(t, rc.run_list[1], Run{2, 4})
-
-	run_container_add(&rc, 1)
-	fmt.println(rc)
-	// testing.expect_value(t, len(rc.run_list), 1)
-	// testing.expect_value(t, rc.run_list[0], Run{0, 6})
-
-	run_container_remove(&rc, 1)
-	fmt.println(rc)
-	// // testing.expect_value(t, rc.run_list[0], Run{0, 1})
-	// // testing.expect_value(t, rc.run_list[1], Run{2, 4})
-
-	// run_container_add(&rc, 1)
-	// fmt.println(rc)
-	// // testing.expect_value(t, len(rc.run_list), 1)
-	// // testing.expect_value(t, rc.run_list[0], Run{0, 6})
-
-	// run_container_remove(&rc, 0)
-	// fmt.println(rc)
-	// // testing.expect_value(t, len(rc.run_list), 1)
-	// // testing.expect_value(t, rc.run_list[0], Run{1, 5})
+	r, _ := reader_init_from_file("foo.txt")
+	// r, _ := reader_init_from_file("optim.txt")
+	ri, _ := header(r)
+	fmt.println(ri)
 }
 
 main :: proc() {
