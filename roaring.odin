@@ -4,7 +4,9 @@ import "base:builtin"
 import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
+import "core:io"
 import "core:mem"
+import "core:os"
 import "core:slice"
 
 MAX_RUNS_PERMITTED :: 2047
@@ -18,7 +20,11 @@ BYTES_PER_BITMAP :: 8192
 Roaring_Error :: union {
 	Already_Set_Error,
 	Not_Set_Error,
+	Parse_Error,
+	Parse_Endian_Error,
 	runtime.Allocator_Error,
+	os.Error,
+	io.Error,
 }
 
 Already_Set_Error :: struct {
@@ -28,6 +34,9 @@ Already_Set_Error :: struct {
 Not_Set_Error :: struct {
 	value: int,
 }
+
+Parse_Error :: struct {}
+Parse_Endian_Error :: struct {}
 
 // "An array container is an object containing a counter keeping track of the
 // number of integers, followed by a packed array of sorted 16-bit unsigned
@@ -814,11 +823,11 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
-	// r, _ := reader_init_from_file("foo.txt")
+	r, _ := reader_init_from_file("foo.txt")
 	// r, _ := reader_init_from_file("optim.txt")
-	r, _ := reader_init_from_file("bitmap.txt")
-	ri, _ := header(r)
-	fmt.println(ri)
+	// r, _ := reader_init_from_file("bitmap.txt")
+	deserialize(r)
+	// fmt.println(rb)
 }
 
 main :: proc() {
