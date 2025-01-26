@@ -28,6 +28,7 @@ Container_Info :: struct {
 	key: u16be,
 	type: Container_Type,
 	cardinality: int,
+	offset: int,
 }
 
 header :: proc(r: io.Reader) -> (ri: Read_Info, ok: bool) {
@@ -75,7 +76,8 @@ header :: proc(r: io.Reader) -> (ri: Read_Info, ok: bool) {
 		if ri.has_run_containers {
 			byte_i := i / 8
 			// TODO: Confirm this..
-			// Swap because we read the bytes from right-to-left..??
+			// Swap the indexes around because we treat the bytes as one long bitset, reading it
+			// from right (least significant) to left (most significant).
 			byte_i = len(ri.bitset) - 1 - byte_i
 			bit_i := i - (byte_i * 8)
 			bit_is_set := (ri.bitset[byte_i] & (1 << u8(bit_i))) != 0
@@ -104,8 +106,24 @@ header :: proc(r: io.Reader) -> (ri: Read_Info, ok: bool) {
 		infos[i] = info
 		fmt.println("key", key, "cardinality", cardinality)
 	}
-
 	ri.containers = infos
+
+	// Offset header
+	// "...then we store (using a 32-bit value) the location (in bytes) of the
+	// container from the beginning of the stream (starting with the cookie) for
+	// each container."
+	// Used for fast random access to a container. Not needed for reading an
+	// entire file into a bitmap. That will happen iteratively.
+	if !ri.has_run_containers || ri.container_count >= NO_OFFSET_THRESHOLD {
+		for i in 0..<ri.container_count {
+			io.read_at_least(r, header[:], 4)
+			offset, _ := endian.get_u32(header[0:4], .Little)
+
+			cinfo := &ri.containers[i]
+			cinfo.offset = int(offset)
+			fmt.println("OFFSET", offset)
+		}
+	}
 
 	return ri, true
 }

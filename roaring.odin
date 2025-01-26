@@ -262,6 +262,18 @@ add :: proc(
 	return true, nil
 }
 
+// Sets multiple values in a Roaring_Bitmap.
+add_many :: proc(
+	rb: ^Roaring_Bitmap,
+	nums: ..int,
+) -> (ok: bool, err: runtime.Allocator_Error) {
+	for n in nums {
+		add(rb, n) or_return
+	}
+
+	return true, nil
+}
+
 // Adds a number to the bitmap, but fails if that value is already set.
 strict_add :: proc(rb: ^Roaring_Bitmap, n: int) -> (ok: bool, err: Roaring_Error) {
 	if contains(rb^, n) {
@@ -269,6 +281,23 @@ strict_add :: proc(rb: ^Roaring_Bitmap, n: int) -> (ok: bool, err: Roaring_Error
 	}
 
 	return add(rb, n)
+}
+
+// Sets multiple values in a Roaring_Bitmap, but checks that none of them
+// exist first. If at least one of them does, an error is raised before
+// and values are set.
+strict_add_many :: proc(rb: ^Roaring_Bitmap, nums: ..int) -> (ok: bool, err: Roaring_Error) {
+	for n in nums {
+		if contains(rb^, n) {
+			return false, Already_Set_Error{n}
+		}
+	}
+
+	for n in nums {
+		add(rb, n) or_return
+	}
+
+	return true, nil
 }
 
 // Removes a value from the Roaring_Bitmap. This method not care if that value is
@@ -313,6 +342,17 @@ remove :: proc(
 	return true, nil
 }
 
+remove_many :: proc(
+	rb: ^Roaring_Bitmap,
+	nums: ..int,
+) -> (ok: bool, err: runtime.Allocator_Error) {
+	for n in nums {
+		remove(rb, n) or_return
+	}
+
+	return true, nil
+}
+
 // Removes a number from the bitmap, but fails if that value is *not* actually set.
 strict_remove :: proc(
 	rb: ^Roaring_Bitmap,
@@ -323,6 +363,25 @@ strict_remove :: proc(
 	}
 
 	return remove(rb, n)
+}
+
+// Removes numbers from the bitmap, but fails if any value attempting to be set
+// is *not* actually set.
+strict_remove_many :: proc(
+	rb: ^Roaring_Bitmap,
+	nums: ..int,
+) -> (ok: bool, err: Roaring_Error) {
+	for n in nums {
+		if !contains(rb^, n) {
+			return false, Not_Set_Error{n}
+		}
+	}
+
+	for n in nums {
+		remove(rb, n) or_return
+	}
+
+	return true, nil
 }
 
 // Flips all the bits from a start range (inclusive) to end (inclusive) in a Roaring_Bitmap
@@ -677,6 +736,41 @@ or_inplace :: proc(
 	return true, nil
 }
 
+// TODO: Fill in. Do the cheap way for now and just do a flip+and or something.
+andnot :: proc(
+	rb1: Roaring_Bitmap,
+	rb2: Roaring_Bitmap,
+	allocator := context.allocator,
+) -> (rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
+	return rb, nil
+}
+
+// TODO: Fill in. Do the cheap way for now and just do a flip+and or something.
+andnot_inplace :: proc(
+	rb1: ^Roaring_Bitmap,
+	rb2: Roaring_Bitmap,
+	allocator := context.allocator,
+) -> (err: runtime.Allocator_Error) {
+	return nil
+}
+
+// TODO: Fill in. Do the cheap way for now and just do a flip+or or something.
+xor :: proc(
+	rb1: Roaring_Bitmap,
+	rb2: Roaring_Bitmap,
+	allocator := context.allocator,
+) -> (rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
+	return rb, nil
+}
+
+// TODO: Fill in. Do the cheap way for now and just do a flip+and or something.
+xor_inplace :: proc(
+	rb1: ^Roaring_Bitmap,
+	rb2: Roaring_Bitmap,
+	allocator := context.allocator,
+) -> (err: runtime.Allocator_Error) {
+	return nil
+}
 
 // Returns the overall cardinality for the Roaring_Bitmap.
 get_cardinality :: proc(rb: Roaring_Bitmap) -> (cardinality: int) {
