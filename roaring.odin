@@ -814,8 +814,9 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
-	r, _ := reader_init_from_file("foo.txt")
+	// r, _ := reader_init_from_file("foo.txt")
 	// r, _ := reader_init_from_file("optim.txt")
+	r, _ := reader_init_from_file("bitmap.txt")
 	ri, _ := header(r)
 	fmt.println(ri)
 }

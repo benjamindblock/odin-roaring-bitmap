@@ -9,6 +9,9 @@ SERIAL_COOKIE_NO_RUNCONTAINER :: 12346
 SERIAL_COOKIE :: 12347
 NO_OFFSET_THRESHOLD :: 4
 
+// FORMAT SPEC
+// https://github.com/RoaringBitmap/RoaringFormatSpec
+
 Read_Info :: struct {
 	has_run_containers: bool,
 	container_count: int,
@@ -125,7 +128,97 @@ header :: proc(r: io.Reader) -> (ri: Read_Info, ok: bool) {
 		}
 	}
 
+	rb, _ := init()
+	for ci in ri.containers {
+		switch ci.type {
+		case .Array:
+			load_array(r, ci, &rb)
+		case .Bitmap:
+			load_bitmap(r, ci, &rb)
+		case .Run:
+			load_run(r, ci, &rb)
+		}
+	}
+
+	fmt.println("ROARING BITMAP")
+	fmt.println(rb)
+	fmt.println(to_array(rb))
+
 	return ri, true
+}
+
+// "For array containers, we store a sorted list of 16-bit unsigned integer values
+// corresponding to the array container. So if there are x values in the array
+// container, 2 x bytes are used."
+load_array :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) {
+	ac, _ := array_container_init()
+
+	buffer: [2]byte
+	for _ in 0..<ci.cardinality {
+		io.read_at_least(r, buffer[:], 2)
+		val, _ := endian.get_u16(buffer[0:2], .Little)
+		array_container_add(&ac, u16be(val))
+	}
+
+	ac.cardinality = array_container_get_cardinality(ac)
+	rb.containers[ci.key] = ac
+	cindex_ordered_insert(rb, ci.key)
+}
+
+// "Bitset containers are stored using exactly 8KB using a bitset serialized with
+// 64-bit words. Thus, for example, if value j is present, then word j/64
+// (starting at word 0) will have its (j%64) least significant bit set to 1
+// (starting at bit 0)."
+load_bitmap :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) {
+	bc, _ := bitmap_container_init()
+
+	buffer: [BYTES_PER_BITMAP]byte
+	io.read_at_least(r, buffer[:], BYTES_PER_BITMAP)
+	as_64 := transmute([1024]u64)buffer
+
+	for word, i in as_64 {
+		for j: u64 = 0; j < 64; j += 1 {
+			is_set := (1 << j) & word != 0
+			if is_set {
+				bitmap_container_add(&bc, u16be((i * 64) + int(j)))
+			}
+		}
+	}
+
+	// bc.cardinality = bitmap_container_get_cardinality(bc)
+	rb.containers[ci.key] = bc
+	cindex_ordered_insert(rb, ci.key)
+}
+
+// "A run container is serialized as a 16-bit integer indicating the number of
+// runs, followed by a pair of 16-bit values for each run. Runs are
+// non-overlapping and sorted. Thus a run container with x runs will use 2 + 4 x
+// bytes. Each pair of 16-bit values contains the starting index of the run
+// followed by the length of the run minus 1. That is, we interleave values and
+// lengths, so that if you have the values 11,12,13,14,15, you store that as 11,4
+// where 4 means that beyond 11 itself, there are 4 contiguous values that follow.
+// Other example: e.g., 1,10, 20,0, 31,2 would be a concise representation of 1,
+// 2, ..., 11, 20, 31, 32, 33"
+load_run :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) {
+	rc, _ := run_container_init()
+
+	buffer: [2]byte
+	io.read_at_least(r, buffer[:], 2)
+	num_runs, _ := endian.get_u16(buffer[0:2], .Little)
+
+	for _ in 0..<num_runs {
+		io.read_at_least(r, buffer[:], 2)
+		start, _ := endian.get_u16(buffer[0:2], .Little)
+
+		io.read_at_least(r, buffer[:], 2)
+		length, _ := endian.get_u16(buffer[0:2], .Little)
+
+		run := Run { start = u16be(start), length = u16be(length) }
+		append(&rc.run_list, run)
+	}
+
+	rb.containers[ci.key] = rc
+	cindex_ordered_insert(rb, ci.key)
 }
 
 reader_init_from_file :: proc(
