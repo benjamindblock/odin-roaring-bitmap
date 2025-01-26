@@ -174,18 +174,19 @@ load_bitmap :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) {
 
 	buffer: [BYTES_PER_BITMAP]byte
 	io.read_at_least(r, buffer[:], BYTES_PER_BITMAP)
-	as_64 := transmute([1024]u64)buffer
 
-	for word, i in as_64 {
-		for j: u64 = 0; j < 64; j += 1 {
-			is_set := (1 << j) & word != 0
-			if is_set {
-				bitmap_container_add(&bc, u16be((i * 64) + int(j)))
-			}
+	// Read words from left-to-right
+	for word_i in 0..<1024 {
+		for byte_i in 0..<8 {
+			// Read bytes within a word from right-to-left
+			reverse_byte_i := 8 - byte_i - 1	
+
+			buffer_i := word_i * 8 + reverse_byte_i
+			bc.bitmap[buffer_i] = buffer[buffer_i]
 		}
 	}
 
-	// bc.cardinality = bitmap_container_get_cardinality(bc)
+	bc.cardinality = bitmap_container_get_cardinality(bc)
 	rb.containers[ci.key] = bc
 	cindex_ordered_insert(rb, ci.key)
 }
