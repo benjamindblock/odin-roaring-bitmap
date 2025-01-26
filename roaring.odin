@@ -45,7 +45,7 @@ Array_Container :: struct {
 // counter to record how many bits are set to 1."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 5)
 Bitmap_Container :: struct {
-	bitmap: [dynamic]u8,
+	bitmap: ^[8192]u8,
 	cardinality: int,
 }
 
@@ -111,7 +111,7 @@ init :: proc(
 	return rb, nil
 }
 
-free :: proc(rb: ^Roaring_Bitmap) {
+destroy :: proc(rb: ^Roaring_Bitmap) {
 	for i, _ in rb.containers {
 		free_at(rb, i)
 	}

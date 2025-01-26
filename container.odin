@@ -135,7 +135,7 @@ container_clone :: proc(
 			cardinality=c.cardinality,
 		}
 	case Bitmap_Container:
-		new_bitmap := slice.clone_to_dynamic(c.bitmap[:], allocator) or_return
+		new_bitmap := new_clone(c.bitmap^, allocator) or_return
 		cloned = Bitmap_Container{
 			bitmap=new_bitmap,
 			cardinality=c.cardinality,

@@ -16,7 +16,7 @@ _main :: proc() {
 	movies := make(map[string]roaring.Roaring_Bitmap)
 	defer {
 		for _, &v in movies {
-			roaring.free(&v)
+			roaring.destroy(&v)
 		}
 		delete(movies)
 	}

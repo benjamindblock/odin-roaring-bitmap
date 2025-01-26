@@ -8,7 +8,7 @@ import "base:runtime"
 bitmap_container_init :: proc(
 	allocator := context.allocator
 ) -> (Bitmap_Container, runtime.Allocator_Error) {
-	arr, err := make([dynamic]u8, BYTES_PER_BITMAP, allocator)
+	arr, err := new([8192]u8, allocator)
 	bc := Bitmap_Container{
 		bitmap=arr,
 		cardinality=0,
@@ -17,7 +17,7 @@ bitmap_container_init :: proc(
 }
 
 bitmap_container_free :: proc(bc: Bitmap_Container) {
-	delete(bc.bitmap)
+	free(bc.bitmap)
 }
 
 @(private)

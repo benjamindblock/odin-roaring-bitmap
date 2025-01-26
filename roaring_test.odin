@@ -8,7 +8,7 @@ import "core:testing"
 @(test)
 test_flip_at_and_select :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	testing.expect_value(t, select(rb, 0), 0)
 	testing.expect_value(t, select(rb, 2), 0)
@@ -21,7 +21,7 @@ test_flip_at_and_select :: proc(t: ^testing.T) {
 @(test)
 test_make_iterator :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	add(&rb, 2)
 }
@@ -30,7 +30,7 @@ test_make_iterator :: proc(t: ^testing.T) {
 test_iterate_set_values_arrays :: proc(t: ^testing.T) {
 	rb, _ := init()
 	it := make_iterator(&rb)
-	defer free(&rb)
+	defer destroy(&rb)
 
 	add(&rb, 2)
 	add(&rb, 230000324)
@@ -57,20 +57,20 @@ test_iterate_set_values_arrays :: proc(t: ^testing.T) {
 @(test)
 test_clone :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	add(&rb, 2)
 	testing.expect_value(t, select(rb, 2), 1)
 
 	rb2, _ := clone(rb)
-	defer free(&rb2)
+	defer destroy(&rb2)
 	testing.expect_value(t, select(rb2, 2), 1)
 }
 
 @(test)
 test_setting_values_works_for_array :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	add(&rb, 0)
 	add(&rb, 1)
@@ -115,7 +115,7 @@ test_setting_values_works_for_bitmap :: proc(t: ^testing.T) {
 	// Create a Roaring_Bitmap and assert that setting up to
 	// 4096 values will use a Array_Container.
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	for i in 0..<4096 {
 		add(&rb, i)
@@ -216,7 +216,7 @@ test_setting_values_for_run_container_complex :: proc(t: ^testing.T) {
 @(test)
 test_converting_from_bitmap_to_run_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	// Confirm all 5000 bits are set in the Bitmap_Container.
 	for i in 0..<5000 {
@@ -243,7 +243,7 @@ test_converting_from_bitmap_to_run_container :: proc(t: ^testing.T) {
 @(test)
 test_converting_from_run_to_bitmap_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	// Confirm all 6000 bits are set in the Bitmap_Container.
 	for i in 0..<6000 {
@@ -273,7 +273,7 @@ test_converting_from_run_to_bitmap_container :: proc(t: ^testing.T) {
 @(test)
 test_multiple_array_containers :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	add(&rb, 0)
 	add(&rb, 1)
@@ -303,9 +303,9 @@ test_and_array :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb3, 0), false)
 	testing.expect_value(t, contains(rb3, 1), true)
 
-	free(&rb1)
-	free(&rb2)
-	free(&rb3)
+	destroy(&rb1)
+	destroy(&rb2)
+	destroy(&rb3)
 }
 
 @(test)
@@ -321,8 +321,8 @@ test_and_inplace_array :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb1, 0), false)
 	testing.expect_value(t, contains(rb1, 1), true)
 
-	free(&rb1)
-	free(&rb2)
+	destroy(&rb1)
+	destroy(&rb2)
 }
 
 @(test)
@@ -342,27 +342,27 @@ test_and_array_and_bitmap :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb3, 2), false)
 	testing.expect_value(t, contains(rb3, 4096), false)
 
-	free(&rb1)
-	free(&rb2)
-	free(&rb3)
+	destroy(&rb1)
+	destroy(&rb2)
+	destroy(&rb3)
 }
 
 @(test)
 test_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
-	defer free(&rb1)
+	defer destroy(&rb1)
 	for i in 0..=4096 {
 		add(&rb1, i)
 	}
 
 	rb2, _ := init()
-	defer free(&rb2)
+	defer destroy(&rb2)
 	for i in 4096..=9999 {
 		add(&rb2, i)
 	}
 
 	rb3, _ := and(rb1, rb2)
-	defer free(&rb3)
+	defer destroy(&rb3)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 4095), false)
 	testing.expect_value(t, contains(rb3, 4096), true)
@@ -372,16 +372,16 @@ test_and_bitmap :: proc(t: ^testing.T) {
 @(test)
 test_or_array :: proc(t: ^testing.T) {
 	rb1, _ := init()
-	defer free(&rb1)
+	defer destroy(&rb1)
 	add(&rb1, 0)
 	add(&rb1, 1)
 
 	rb2, _ := init()
-	defer free(&rb2)
+	defer destroy(&rb2)
 	add(&rb2, 1)
 
 	rb3, _ := or(rb1, rb2)
-	defer free(&rb3)
+	defer destroy(&rb3)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
@@ -390,12 +390,12 @@ test_or_array :: proc(t: ^testing.T) {
 @(test)
 test_or_inplace_array :: proc(t: ^testing.T) {
 	rb1, _ := init()
-	defer free(&rb1)
+	defer destroy(&rb1)
 	add(&rb1, 0)
 	add(&rb1, 1)
 
 	rb2, _ := init()
-	defer free(&rb2)
+	defer destroy(&rb2)
 	add(&rb2, 1)
 
 	or_inplace(&rb1, rb2)
@@ -407,18 +407,18 @@ test_or_inplace_array :: proc(t: ^testing.T) {
 @(test)
 test_or_array_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
-	defer free(&rb1)
+	defer destroy(&rb1)
 	add(&rb1, 0)
 	add(&rb1, 1)
 
 	rb2, _ := init()
-	defer free(&rb2)
+	defer destroy(&rb2)
 	for i in 0..=4096 {
 		add(&rb2, i)
 	}
 
 	rb3, _ := or(rb1, rb2)
-	defer free(&rb3)
+	defer destroy(&rb3)
 	testing.expect_value(t, len(rb3.containers), 1)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
@@ -430,12 +430,12 @@ test_or_array_and_bitmap :: proc(t: ^testing.T) {
 @(test)
 test_or_inplace_array_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
-	defer free(&rb1)
+	defer destroy(&rb1)
 	add(&rb1, 0)
 	add(&rb1, 1)
 
 	rb2, _ := init()
-	defer free(&rb2)
+	defer destroy(&rb2)
 	for i in 0..=4096 {
 		add(&rb2, i)
 	}
@@ -472,15 +472,15 @@ test_or_bitmap :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb3, 123456800), true)
 	testing.expect_value(t, contains(rb3, 123456801), false)
 
-	free(&rb1)
-	free(&rb2)
-	free(&rb3)
+	destroy(&rb1)
+	destroy(&rb2)
+	destroy(&rb3)
 }
 
 @(test)
 test_strict_methods :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	// Ensure we don't prefill the packed array with any 0 values
 	// after initializing.
@@ -523,7 +523,7 @@ test_strict_methods :: proc(t: ^testing.T) {
 @(test)
 test_bitmap_container_count_runs :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	for i in 0..<10000 {
 		if i % 2 == 0 {
@@ -540,7 +540,7 @@ test_bitmap_container_count_runs :: proc(t: ^testing.T) {
 @(test)
 test_should_convert_bitmap_container_to_run_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	for i in 0..<5000 {
 		add(&rb, i)
@@ -827,7 +827,7 @@ test_or_run_with_run :: proc(t: ^testing.T) {
 @(test)
 test_container_is_full :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	// Should end up with two containers, the first one is full at
 	// 65536 values and the second one half full.
@@ -864,7 +864,7 @@ test_container_is_full :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	flip_inplace(&rb, 0, 1000)
 
@@ -881,7 +881,7 @@ test_flip_inplace_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_with_full_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	for i in 0..<65536 {
 		add(&rb, i)
@@ -901,7 +901,7 @@ test_flip_inplace_with_full_container :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_array_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	add(&rb, 3)
 	add(&rb, 5)
@@ -931,7 +931,7 @@ test_flip_inplace_array_container :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_array_container_remove :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	add(&rb, 3)
 	add(&rb, 4)
@@ -953,7 +953,7 @@ test_flip_inplace_array_container_remove :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	for i in 0..<5000 {
 		add(&rb, i)
@@ -992,7 +992,7 @@ test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_run_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	for i in 0..<60000 {
 		if i > 0 && i < 4 {
@@ -1018,13 +1018,13 @@ test_flip_inplace_run_container :: proc(t: ^testing.T) {
 @(test)
 test_flip_array_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer free(&rb)
+	defer destroy(&rb)
 
 	add(&rb, 3)
 	add(&rb, 5)
 
 	new_rb, err := flip(rb, 1, 7)
-	defer free(&new_rb)
+	defer destroy(&new_rb)
 
 	// Assert the new Roaring_Bitmap has the flipped data.
 	testing.expect_value(t, err, nil)
