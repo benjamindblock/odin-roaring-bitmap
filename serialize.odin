@@ -17,8 +17,9 @@ handle_from_file :: proc(filepath: string) -> (fd: os.Handle, err: os.Error) {
 	return fd, nil
 }
 
-serialize :: proc() -> Roaring_Error {
+serialize :: proc(rb: Roaring_Bitmap) -> Roaring_Error {
 	fh := handle_from_file("foo.txt") or_return
+	defer os.close(fh)
 
 	s := "hello!\n"
 	os.write(fh, transmute([]byte)s)

@@ -36,12 +36,17 @@ Container_Info :: struct {
 }
 
 @(require_results)
-deserialize :: proc(r: io.Reader, allocator := context.allocator) -> (rb: Roaring_Bitmap, err: Roaring_Error) {
+deserialize :: proc(filepath: string, allocator := context.allocator) -> (rb: Roaring_Bitmap, err: Roaring_Error) {
+	fh: os.Handle = os.open(filepath) or_return
+	defer os.close(fh)
+
+	st: io.Stream = os.stream_from_handle(fh)
+	r := io.to_reader(st)
+
 	fi := parse_header(r, context.temp_allocator) or_return
 	defer free_all(context.temp_allocator)
 
 	rb = load_roaring_bitmap(r, fi, allocator) or_return
-
 	return rb, nil
 }
 
@@ -54,14 +59,6 @@ parse_header :: proc(
 	parse_descriptive_header(r, &fi, allocator) or_return
 	parse_offset_header(r, &fi, allocator) or_return
 	return fi, nil
-}
-
-@(private)
-reader_init_from_file :: proc(filepath: string) -> (r: io.Reader, err: os.Error) {
-	fh: os.Handle = os.open(filepath) or_return
-	st: io.Stream = os.stream_from_handle(fh)
-	r = io.to_reader(st)
-	return r, nil
 }
 
 @(private)
