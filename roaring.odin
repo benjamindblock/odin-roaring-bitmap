@@ -823,21 +823,24 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
-	r, _ := reader_init_from_file("foo.txt")
-	// r, _ := reader_init_from_file("optim.txt")
-	// r, _ := reader_init_from_file("bitmap.txt")
-	// r, _ := reader_init_from_file("tmp/bitmapwithoutruns.bin")
+	// r, _ := reader_init_from_file("foo.txt")
+	// // r, _ := reader_init_from_file("optim.txt")
+	// // r, _ := reader_init_from_file("bitmap.txt")
+	// // r, _ := reader_init_from_file("tmp/bitmapwithoutruns.bin")
 
-	rb, _ := deserialize(r)
-	defer destroy(&rb)
+	// rb, _ := deserialize(r)
+	// defer destroy(&rb)
 
-	fmt.println("ROARING BITMAP")
-	fmt.println(rb)
+	// fmt.println("ROARING BITMAP")
+	// fmt.println(rb)
 
 	// a := to_array(rb)
 	// defer delete(a)
 	// fmt.println(a)
 	// fmt.println(rb)
+
+	err := serialize()
+	fmt.println(err)
 }
 
 main :: proc() {
