@@ -1,8 +1,8 @@
 package roaring
 
 import "core:encoding/endian"
-import "core:fmt"
 import "core:io"
+import "core:mem"
 import "core:os"
 
 SERIAL_COOKIE_NO_RUNCONTAINER :: 12346
@@ -35,22 +35,20 @@ Container_Info :: struct {
 	offset: int,
 }
 
-reader_init_from_file :: proc(filepath: string) -> (r: io.Reader, err: os.Error) {
-	fh: os.Handle = os.open(filepath) or_return
-	st: io.Stream = os.stream_from_handle(fh)
-	r = io.to_reader(st)
-	return r, nil
-}
+@(require_results)
+deserialize :: proc(r: io.Reader, allocator := context.allocator) -> (rb: Roaring_Bitmap, err: Roaring_Error) {
+	fi := parse_header(r, context.temp_allocator) or_return
+	defer free_all(context.temp_allocator)
 
-deserialize :: proc(r: io.Reader) -> (rb: Roaring_Bitmap, err: Roaring_Error) {
-	fi := parse_header(r) or_return
-	rb = load_roaring_bitmap(r, fi) or_return
+	rb = load_roaring_bitmap(r, fi, allocator) or_return
+
 	return rb, nil
 }
 
+@(require_results)
 parse_header :: proc(
 	r: io.Reader,
-	allocator := context.allocator,
+	allocator: mem.Allocator,
 ) -> (fi: File_Info, err: Roaring_Error) {
 	parse_cookie_header(r, &fi, allocator) or_return
 	parse_descriptive_header(r, &fi, allocator) or_return
@@ -58,10 +56,19 @@ parse_header :: proc(
 	return fi, nil
 }
 
+@(private)
+reader_init_from_file :: proc(filepath: string) -> (r: io.Reader, err: os.Error) {
+	fh: os.Handle = os.open(filepath) or_return
+	st: io.Stream = os.stream_from_handle(fh)
+	r = io.to_reader(st)
+	return r, nil
+}
+
+@(private)
 parse_cookie_header :: proc(
 	r: io.Reader,
 	fi: ^File_Info,
-	allocator := context.allocator
+	allocator: mem.Allocator,
 ) -> (err: Roaring_Error) {
 	buffer: [4]byte
 	io.read_at_least(r, buffer[:], 4)
@@ -92,10 +99,11 @@ parse_cookie_header :: proc(
 	return nil
 }
 
+@(private)
 parse_descriptive_header :: proc(
 	r: io.Reader,
 	fi: ^File_Info,
-	allocator := context.allocator
+	allocator: mem.Allocator,
 ) -> (err: Roaring_Error) {
 	buffer: [4]byte
 	infos := make([]Container_Info, fi.container_count, allocator) or_return
@@ -151,7 +159,12 @@ parse_descriptive_header :: proc(
 //
 // Used for fast random access to a container. Not needed for reading an
 // entire file into a bitmap. That will happen iteratively.
-parse_offset_header :: proc(r: io.Reader, fi: ^File_Info, allocator := context.allocator) -> (err: Roaring_Error) {
+@(private)
+parse_offset_header :: proc(
+	r: io.Reader,
+	fi: ^File_Info,
+	allocator: mem.Allocator,
+) -> (err: Roaring_Error) {
 	buffer: [4]byte
 
 	if !fi.has_run_containers || fi.container_count >= NO_OFFSET_THRESHOLD {
@@ -166,23 +179,26 @@ parse_offset_header :: proc(r: io.Reader, fi: ^File_Info, allocator := context.a
 	return nil
 }
 
-load_roaring_bitmap :: proc(r: io.Reader, fi: File_Info) -> (rb: Roaring_Bitmap, err: Roaring_Error) {
-	rb = init() or_return
+// Loads the full Roaring_Bitmap from the rest of the file contents after
+// the headers.
+@(private)
+load_roaring_bitmap :: proc(
+	r: io.Reader,
+	fi: File_Info,
+	allocator := context.temp_allocator
+) -> (rb: Roaring_Bitmap, err: Roaring_Error) {
+	rb = init(allocator) or_return
 
 	for ci in fi.containers {
 		switch ci.type {
 		case .Array:
-			load_array(r, ci, &rb)
+			load_array_container(r, ci, &rb)
 		case .Bitmap:
-			load_bitmap(r, ci, &rb)
+			load_bitmap_container(r, ci, &rb)
 		case .Run:
-			load_run(r, ci, &rb)
+			load_run_container(r, ci, &rb)
 		}
 	}
-
-	fmt.println("ROARING BITMAP")
-	fmt.println(rb)
-	fmt.println(to_array(rb))
 
 	return rb, nil
 }
@@ -190,8 +206,9 @@ load_roaring_bitmap :: proc(r: io.Reader, fi: File_Info) -> (rb: Roaring_Bitmap,
 // "For array containers, we store a sorted list of 16-bit unsigned integer values
 // corresponding to the array container. So if there are x values in the array
 // container, 2 x bytes are used."
-load_array :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) -> Roaring_Error {
-	ac, _ := array_container_init()
+@(private)
+load_array_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) -> Roaring_Error {
+	ac := array_container_init(rb.allocator) or_return
 
 	buffer: [2]byte
 	for _ in 0..<ci.cardinality {
@@ -210,8 +227,9 @@ load_array :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) -> Roa
 // 64-bit words. Thus, for example, if value j is present, then word j/64
 // (starting at word 0) will have its (j%64) least significant bit set to 1
 // (starting at bit 0)."
-load_bitmap :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) {
-	bc, _ := bitmap_container_init()
+@(private)
+load_bitmap_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) -> Roaring_Error {
+	bc := bitmap_container_init(rb.allocator) or_return
 
 	buffer: [BYTES_PER_BITMAP]byte
 	io.read_at_least(r, buffer[:], BYTES_PER_BITMAP)
@@ -229,6 +247,7 @@ load_bitmap :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) {
 	bc.cardinality = bitmap_container_get_cardinality(bc)
 	rb.containers[ci.key] = bc
 	cindex_ordered_insert(rb, ci.key)
+	return nil
 }
 
 // "A run container is serialized as a 16-bit integer indicating the number of
@@ -240,8 +259,9 @@ load_bitmap :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) {
 // where 4 means that beyond 11 itself, there are 4 contiguous values that follow.
 // Other example: e.g., 1,10, 20,0, 31,2 would be a concise representation of 1,
 // 2, ..., 11, 20, 31, 32, 33"
-load_run :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) -> Roaring_Error {
-	rc, _ := run_container_init()
+@(private)
+load_run_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) -> Roaring_Error {
+	rc := run_container_init(rb.allocator) or_return
 
 	buffer: [2]byte
 	io.read_at_least(r, buffer[:], 2)
@@ -264,6 +284,7 @@ load_run :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) -> Roari
 }
 
 // Parse a u16 from a byte buffer.
+@(private)
 parse_u16_le :: proc(buf: []u8) -> (n: u16, err: Roaring_Error) {
 	val, ok := endian.get_u16(buf[:], .Little)
 
@@ -275,6 +296,7 @@ parse_u16_le :: proc(buf: []u8) -> (n: u16, err: Roaring_Error) {
 }
 
 // Parse a u32 from a byte buffer.
+@(private)
 parse_u32_le :: proc(buf: []u8) -> (n: u32, err: Roaring_Error) {
 	val, ok := endian.get_u32(buf[:], .Little)
 

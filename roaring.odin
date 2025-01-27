@@ -178,7 +178,7 @@ free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 }
 
 // Returns all of the set values of a Roaring_Bitmap as an array.
-to_array :: proc(rb: Roaring_Bitmap, allocator := context.allocator) -> []int {
+to_array :: proc(rb: Roaring_Bitmap, allocator := context.allocator) -> [dynamic]int {
 	rb := rb
 	iterator := make_iterator(&rb)
 
@@ -186,7 +186,7 @@ to_array :: proc(rb: Roaring_Bitmap, allocator := context.allocator) -> []int {
 	for v in iterate_set_values(&iterator) {
 		append(&acc, v)
 	}
-	return acc[:]
+	return acc
 }
 
 // Prints statistics on the Roaring_Bitmap.
@@ -826,7 +826,17 @@ _main :: proc() {
 	r, _ := reader_init_from_file("foo.txt")
 	// r, _ := reader_init_from_file("optim.txt")
 	// r, _ := reader_init_from_file("bitmap.txt")
-	deserialize(r)
+	// r, _ := reader_init_from_file("tmp/bitmapwithoutruns.bin")
+
+	rb, _ := deserialize(r)
+	defer destroy(&rb)
+
+	fmt.println("ROARING BITMAP")
+	fmt.println(rb)
+
+	// a := to_array(rb)
+	// defer delete(a)
+	// fmt.println(a)
 	// fmt.println(rb)
 }
 
