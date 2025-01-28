@@ -2,6 +2,7 @@ package roaring
 
 import "base:runtime"
 import "core:fmt"
+import "core:os"
 import "core:slice"
 import "core:testing"
 
@@ -1130,6 +1131,7 @@ test_flip_array_container :: proc(t: ^testing.T) {
 // Ref: https://github.com/RoaringBitmap/RoaringFormatSpec/tree/master/testdata
 @(test)
 test_serialization_and_deserialization :: proc(t: ^testing.T) {
+	// Test deserialization process.
 	rb, _ := deserialize("test_files/bitmapwithoutruns.bin")
 	defer destroy(&rb)
 
@@ -1145,7 +1147,15 @@ test_serialization_and_deserialization :: proc(t: ^testing.T) {
 		testing.expect_value(t, contains(rb, k), true)
 	}
 
+	// Ensure that the file written exactly matches the test file.
 	serialize("tmp/out.txt", rb)
+	data1, _ := os.read_entire_file_from_filename("test_files/bitmapwithoutruns.bin")
+	data2, _ := os.read_entire_file_from_filename("tmp/out.txt")
+	testing.expect_value(t, slice.equal(data1[:], data2[:]), true)
+	delete(data1)
+	delete(data2)
+
+	// Test deserialization process with our own written file.
 	rb2, _ := deserialize("tmp/out.txt")
 	defer destroy(&rb2)
 

@@ -455,11 +455,33 @@ flip_at :: proc(rb: ^Roaring_Bitmap, n: int) {
 }
 
 // Estimate of the memory usage of this data structure.
-get_size_in_bytes :: proc(rb: Roaring_Bitmap) {
+estimate_size_in_bytes :: proc(rb: Roaring_Bitmap) -> (size: int) {
+	size += size_of(rb.cindex)
+
+	for _, container in rb.containers {
+		switch c in container {
+		case Array_Container:
+			size += size_of(c.packed_array)
+		case Bitmap_Container:
+			size += size_of(c.bitmap)
+		case Run_Container:
+			size += size_of(c.run_list)
+		}
+	}
+
+	return size
 }
 
-// TODO: Finish.
 has_run_compression :: proc(rb: Roaring_Bitmap) -> bool {
+	for _, container in rb.containers {
+		switch c in container {
+		case Array_Container, Bitmap_Container:
+			continue
+		case Run_Container:
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -949,19 +971,6 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
-	rb1, _ := init()
-	add(&rb1, 0)
-	add(&rb1, 1)
-
-	rb2, _ := init()
-	add(&rb2, 0)
-	add(&rb2, 2)
-
-	rb3, _ := andnot(rb1, rb2)
-
-	destroy(&rb1)
-	destroy(&rb2)
-	destroy(&rb3)
 }
 
 main :: proc() {
