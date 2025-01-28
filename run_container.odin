@@ -55,7 +55,7 @@ run_container_add :: proc(
 		// Merge with the previous run if we need to.
 		if i > 0 {
 			prev_run := rc.run_list[i-1]
-			if run_to_expand.start == run_end_position(prev_run) {
+			if run_to_expand.start == run_after_end_pos(prev_run) {
 				run_to_expand.length += prev_run.length
 				run_to_expand.start = prev_run.start
 				ordered_remove(&rc.run_list, i-1)
@@ -63,13 +63,13 @@ run_container_add :: proc(
 		}
 
 	// Expand a Run forwards.
-	} else if run_end_position(run_to_expand^) == n {
+	} else if run_after_end_pos(run_to_expand^) == n {
 		run_to_expand.length += 1
 
 		// Merge with the next run if we need to.
 		if i + 1 < u16be(len(rc.run_list)) {
 			next_run := rc.run_list[i+1]
-			if run_end_position(run_to_expand^) == next_run.start {
+			if run_after_end_pos(run_to_expand^) == next_run.start {
 				run_to_expand.length += next_run.length + 1
 				ordered_remove(&rc.run_list, i+1)
 			}
@@ -108,7 +108,7 @@ run_container_remove :: proc(
 		run_to_check.length -= 1
 
 	// 3. Value at end of run -- decrease length by 1
-	} else if run_end_position(run_to_check^) - 1 == n {
+	} else if run_after_end_pos(run_to_check^) == n {
 		run_to_check.length -= 1
 
 	// 4. Value in middle of run -- split Run into two Runs
@@ -157,7 +157,7 @@ run_container_get_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 // Finds the end position of the given Run in the container (exclusive).
 @(private)
 run_end_position :: proc(run: Run) -> u16be {
-	return run.start + run.length + 1
+	return run.start + run.length
 }
 
 // Finds the value *before* the start of the given Run. If we are already
@@ -176,7 +176,7 @@ runs_overlap :: proc(r1: Run, r2: Run) -> bool {
 	end1 := run_end_position(r1)
 	end2 := run_end_position(r2)
 
-	return start1 < end2 && start2 < end1
+	return start1 <= end2 && start2 <= end1
 }
 
 // Finds the range (inclusive at both ends) that two Run
@@ -198,7 +198,15 @@ run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: u16be, end: u16be) {
 }
 
 run_contains :: proc(r: Run, n: u16be) -> bool {
-	return n >= r.start && n < run_end_position(r)
+	return n >= r.start && n <= run_end_position(r)
+}
+
+run_after_end_pos :: proc(r: Run) -> u16be {
+	after_end := run_end_position(r)
+	if after_end < max(u16be) {
+		after_end += 1
+	}
+	return after_end
 }
 
 // Checks if a given run *could* contain a given N-value by either
@@ -207,7 +215,7 @@ run_contains :: proc(r: Run, n: u16be) -> bool {
 // Eg., run_could_contain(Run{2, 1}, 1) => true (as Run{1, 2} would
 // be the new Run that contains the N-value).
 run_could_contain :: proc(r: Run, n: u16be) -> bool {
-	return n >= run_before_start_pos(r)  && n <= run_end_position(r)
+	return n >= run_before_start_pos(r) && n <= run_after_end_pos(r)
 }
 
 // Searches for a given N-value in a Run_List.
@@ -343,13 +351,13 @@ run_container_or_run_container :: proc(
 	new_rc := c.(Run_Container)
 
 	for run in rc1.run_list {
-		for i := run.start; i < run_end_position(run); i += 1 {
+		for i := run.start; i <= run_end_position(run); i += 1 {
 			run_container_add(&new_rc, i) or_return
 		}
 	}
 
 	for run in rc2.run_list {
-		for i := run.start; i < run_end_position(run); i += 1 {
+		for i := run.start; i <= run_end_position(run); i += 1 {
 			run_container_add(&new_rc, i) or_return
 		}
 	}

@@ -2,12 +2,9 @@ package roaring
 
 import "core:encoding/endian"
 import "core:io"
+import "core:fmt"
 import "core:mem"
 import "core:os"
-
-SERIAL_COOKIE_NO_RUNCONTAINER :: 12346
-SERIAL_COOKIE :: 12347
-NO_OFFSET_THRESHOLD :: 4
 
 // FORMAT SPEC
 // https://github.com/RoaringBitmap/RoaringFormatSpec
@@ -44,12 +41,14 @@ deserialize :: proc(filepath: string, allocator := context.allocator) -> (rb: Ro
 	r := io.to_reader(st)
 
 	fi := parse_header(r, context.temp_allocator) or_return
+	fmt.println(fi)
 	defer free_all(context.temp_allocator)
 
 	rb = load_roaring_bitmap(r, fi, allocator) or_return
 	return rb, nil
 }
 
+// Parses the header content of the file and returns a File_Info struct.
 @(require_results)
 parse_header :: proc(
 	r: io.Reader,
@@ -76,13 +75,18 @@ parse_cookie_header :: proc(
 	if cookie == SERIAL_COOKIE_NO_RUNCONTAINER {
 		fi.has_run_containers = false
 		io.read_at_least(r, buffer[:], 4)
+		fmt.println("b", buffer)
 		num := parse_u32_le(buffer[:]) or_return
+		fmt.println("num", num)
+
 		fi.container_count = int(num)
 	} else if cookie == SERIAL_COOKIE {
 		fi.has_run_containers = true
-		num := parse_u16_le(buffer[2:4]) or_return
+
+		num_u16le := parse_u16_le(buffer[2:4]) or_return
+		num := int(num_u16le)
 		num += 1
-		fi.container_count = int(num)
+		fi.container_count = num
 
 		bytes_in_bitset := (fi.container_count + 7) / 8
 
@@ -110,7 +114,8 @@ parse_descriptive_header :: proc(
 		io.read_at_least(r, buffer[:], 4) or_return
 
 		key := parse_u16_le(buffer[0:2]) or_return
-		cardinality := parse_u16_le(buffer[2:4]) or_return
+		cardinality_u16le := parse_u16_le(buffer[2:4]) or_return
+		cardinality: int = int(cardinality_u16le)
 		cardinality += 1
 
 		type: Container_Type
@@ -118,9 +123,12 @@ parse_descriptive_header :: proc(
 			byte_i := i / 8
 			// Swap the indexes around because we treat the bytes as one long bitset
 			// and thus read it from right to left.
-			byte_i = len(fi.bitset) - 1 - byte_i
+			// byte_i = len(fi.bitset) - 1 - byte_i
 			bit_i := i - (byte_i * 8)
 			bit_is_set := (fi.bitset[byte_i] & (1 << u8(bit_i))) != 0
+
+			fmt.println("BIT IS SET?", bit_is_set, "container", i)
+			fmt.printf("{:8b}\n", fi.bitset[byte_i])
 
 			if bit_is_set {
 				type = .Run
@@ -139,7 +147,7 @@ parse_descriptive_header :: proc(
 
 		info := Container_Info {
 			key = u16be(key),
-			cardinality = int(cardinality),
+			cardinality = cardinality,
 			type = type,
 		}
 
@@ -233,13 +241,16 @@ load_bitmap_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bit
 
 	// Read words from left-to-right
 	for word_i in 0..<1024 {
-		for byte_i in 0..<8 {
-			// Read bytes within a word from right-to-left
-			reverse_byte_i := 8 - byte_i - 1	
-			buffer_i := word_i * 8 + reverse_byte_i
+		// Read bytes within a word from right-to-left
+		for byte_i := 7; byte_i >= 0; byte_i -= 1 {
+			buffer_i := word_i * 8 + byte_i
 			bc.bitmap[buffer_i] = buffer[buffer_i]
 		}
 	}
+
+	// for i in 0..<BYTES_PER_BITMAP {
+	// 	bc.bitmap[i] = buffer[i]
+	// }
 
 	bc.cardinality = bitmap_container_get_cardinality(bc)
 	rb.containers[ci.key] = bc

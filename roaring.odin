@@ -17,6 +17,11 @@ MAX_ARRAY_LENGTH :: 4096
 // instead of 1024 64-bit words as specified in some roaring papers.
 BYTES_PER_BITMAP :: 8192
 
+// Constants for serializing and deserializing.
+SERIAL_COOKIE_NO_RUNCONTAINER :: 12346
+SERIAL_COOKIE :: 12347
+NO_OFFSET_THRESHOLD :: 4
+
 Roaring_Error :: union {
 	Already_Set_Error,
 	Not_Set_Error,
@@ -806,6 +811,21 @@ optimize :: proc(rb: ^Roaring_Bitmap) -> (err: runtime.Allocator_Error) {
 	return nil
 }
 
+// A Roaring_Bitmap is considered optimized if it has at least once Run_Container.
+// This means optimize has been called on it at some point.
+is_optimized :: proc(rb: Roaring_Bitmap) -> bool {
+	for _, container in rb.containers {
+		switch c in container {
+		case Run_Container:
+			return true
+		case Array_Container, Bitmap_Container:
+			continue
+		}
+	}
+
+	return false
+}
+
 // Returns a u16 in big-endian made up of the 16 most significant
 // bits in a u32be number.
 @(private, require_results)
@@ -823,23 +843,69 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
-	rb, _ := deserialize("tmp/foo.txt")
+	// rb, _ := deserialize("tmp/foo.txt")
 	// rb, _ := deserialize("tmp/optim.txt")
 	// rb, _ := deserialize("tmp/bitmap.txt")
-	// rb, _ := deserialize("tmp/bitmapwithoutruns.bin")
-
+	rb, _ := deserialize("tmp/bitmapwithruns.bin")
 	defer destroy(&rb)
 
-	fmt.println("ROARING BITMAP")
-	fmt.println(rb)
 
-	a := to_array(rb)
-	defer delete(a)
-	fmt.println(a)
-	// fmt.println(rb)
+	for k := 0; k < 100000; k+= 1000 {
+		assert(contains(rb, k), "missing!")
+	}
 
-	err := serialize(rb)
-	fmt.println(err)
+	for k := 100000; k < 200000; k += 1 {
+		assert(contains(rb, k*3), "missing!")
+	}
+
+	fmt.println(rb.cindex)
+	fmt.println("most", most_significant(700000))
+	fmt.println("most", most_significant(720895))
+	fmt.println("most", most_significant(720896))
+	fmt.println("most", most_significant(720897))
+
+	fmt.println(least_significant(700000))
+	fmt.println(rb.containers[most_significant(700000)])
+	fmt.println(rb.containers[most_significant(720895)])
+	fmt.println(rb.containers[most_significant(720896)])
+	assert(contains(rb, 720895), "missing 720895")
+	assert(contains(rb, 720896), "missing 720896")
+
+	for k := 700000; k < 800000; k += 1{
+		s := fmt.tprintf("missing %v\n", k)
+		assert(contains(rb, k), s)
+	}
+
+	// serialize("tmp/out.txt", rb)
+
+	// fmt.println("\nDESER AGAIN")
+	// rb2, _ := deserialize("tmp/out.txt")
+	// fmt.println(rb2.cindex)
+
+	// for k := 0; k < 100000; k+= 1000 {
+	// 	s := fmt.tprintf("missing %v\n", k)
+	// 	assert(contains(rb2, k), s)
+	// }
+
+	// for k := 100000; k < 200000; k += 1 {
+	// 	s := fmt.tprintf("missing %v, %v\n", k, k*3)
+	// 	assert(contains(rb2, k*3), s)
+	// }
+
+	// fmt.println(rb2.cindex)
+	// fmt.println("most", most_significant(700000))
+	// fmt.println("most", most_significant(720895))
+	// fmt.println("most", most_significant(720896))
+	// fmt.println("most", most_significant(720897))
+	// // fmt.println(rb2.containers[most_significant(720895)])
+	// // fmt.println(rb2.containers[most_significant(720896)])
+	// assert(contains(rb2, 720895), "missing 720895")
+	// assert(contains(rb2, 720896), "missing 720896")
+
+	// for k := 700000; k < 800000; k += 1{
+	// 	s := fmt.tprintf("missing %v\n", k)
+	// 	assert(contains(rb2, k), s)
+	// }
 }
 
 main :: proc() {

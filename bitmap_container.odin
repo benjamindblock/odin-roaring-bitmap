@@ -246,7 +246,7 @@ bitmap_container_and_run_container :: proc(
 	if container_get_cardinality(rc) <= MAX_ARRAY_LENGTH {
 		nc_ac := array_container_init(allocator) or_return
 		for run in rc.run_list {
-			for i := run.start; i < run_end_position(run); i += 1 {
+			for i := run.start; i <= run_end_position(run); i += 1 {
 				if bitmap_container_contains(bc, u16be(i)) {
 					array_container_add(&nc_ac, u16be(i)) or_return
 				}
@@ -271,7 +271,7 @@ bitmap_container_and_run_container :: proc(
 
 		// Set any remaining bits after the last Run to be 0.
 		last_run := rc.run_list[len(rc.run_list) - 1]
-		unset_start := int(run_end_position(last_run) + 1)
+		unset_start := int(run_after_end_pos(last_run) + 1)
 		unset_length := (BYTES_PER_BITMAP * 8) - unset_start
 		bitmap_container_unset_range(&new_bc, unset_start, unset_length)
 
