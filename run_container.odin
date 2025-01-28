@@ -15,7 +15,7 @@ run_container_init :: proc(
 }
 
 @(private)
-run_container_free :: proc(rc: Run_Container) {
+run_container_destroy :: proc(rc: Run_Container) {
 	delete(rc.run_list)
 }
 
@@ -382,7 +382,7 @@ run_container_convert_to_array_container :: proc(
 		}
 	}
 
-	run_container_free(rc)
+	run_container_destroy(rc)
 	return ac, nil
 }
 
@@ -402,6 +402,6 @@ run_container_convert_to_bitmap_container :: proc(
 		}
 	}
 
-	run_container_free(rc)
+	run_container_destroy(rc)
 	return bc, nil
 }

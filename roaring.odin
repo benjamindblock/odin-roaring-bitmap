@@ -174,7 +174,7 @@ cindex_ordered_insert :: proc(rb: ^Roaring_Bitmap, n: u16be) -> (ok: bool, err: 
 @(private)
 free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 	container := rb.containers[i]
-	container_free(container)
+	container_destroy(container)
 	delete_key(&rb.containers, i)
 	cindex_ordered_remove(rb, i)
 	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
@@ -592,7 +592,7 @@ and_inplace :: proc(
 		// 2. Ignoring it because it does not exist in the second Roaring_Bitmap
 		//
 		// The last loop at the end will ensure that we update the cindex appropriately.
-		defer container_free(v1)
+		defer container_destroy(v1)
 
 		if k1 in rb2.containers {
 			v2 := rb2.containers[k1]
@@ -655,10 +655,10 @@ andnot :: proc(
 	for k1, container1 in rb1.containers {
 		if k1 in rb2.containers {
 			bc1 := container_clone_to_bitmap(container1) or_return
-			defer container_free(bc1)
+			defer container_destroy(bc1)
 
 			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
-			defer container_free(bc2)
+			defer container_destroy(bc2)
 
 			res := bitmap_container_andnot_bitmap_container(bc1, bc2, allocator) or_return
 			rb.containers[k1] = res
@@ -687,14 +687,14 @@ andnot_inplace :: proc(
 		// 2. Ignoring it because it does not exist in the second Roaring_Bitmap
 		//
 		// The last loop at the end will ensure that we update the cindex appropriately.
-		defer container_free(container1)
+		defer container_destroy(container1)
 
 		if k1 in rb2.containers {
 			bc1 := container_clone_to_bitmap(container1) or_return
-			defer container_free(bc1)
+			defer container_destroy(bc1)
 
 			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
-			defer container_free(bc2)
+			defer container_destroy(bc2)
 
 			res := bitmap_container_andnot_bitmap_container(bc1, bc2, allocator) or_return
 			rb1.containers[k1] = res
@@ -797,7 +797,7 @@ or_inplace :: proc(
 
 		// Always delete the original container from the first Roaring_Bitmap because
 		// it will be replaced with the new OR'ed container
-		defer container_free(v1)
+		defer container_destroy(v1)
 
 		v2 := rb2.containers[k1]
 		switch c1 in v1 {
@@ -858,10 +858,10 @@ xor :: proc(
 	for k1, container1 in rb1.containers {
 		if k1 in rb2.containers {
 			bc1 := container_clone_to_bitmap(container1) or_return
-			defer container_free(bc1)
+			defer container_destroy(bc1)
 
 			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
-			defer container_free(bc2)
+			defer container_destroy(bc2)
 
 			res := bitmap_container_xor_bitmap_container(bc1, bc2, allocator) or_return
 			rb.containers[k1] = res
@@ -890,14 +890,14 @@ xor_inplace :: proc(
 		// 2. Ignoring it because it does not exist in the second Roaring_Bitmap
 		//
 		// The last loop at the end will ensure that we update the cindex appropriately.
-		defer container_free(container1)
+		defer container_destroy(container1)
 
 		if k1 in rb2.containers {
 			bc1 := container_clone_to_bitmap(container1) or_return
-			defer container_free(bc1)
+			defer container_destroy(bc1)
 
 			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
-			defer container_free(bc2)
+			defer container_destroy(bc2)
 
 			res := bitmap_container_xor_bitmap_container(bc1, bc2, allocator) or_return
 			rb1.containers[k1] = res

@@ -165,7 +165,7 @@ test_setting_values_works_for_bitmap :: proc(t: ^testing.T) {
 @(test)
 test_setting_values_for_run_container :: proc(t: ^testing.T) {
 	rc, _ := run_container_init()
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 
 	run_container_add(&rc, 0)
 	testing.expect_value(t, len(rc.run_list), 1)
@@ -181,7 +181,7 @@ test_setting_values_for_run_container :: proc(t: ^testing.T) {
 @(test)
 test_setting_values_for_run_container_complex :: proc(t: ^testing.T) {
 	rc, _ := run_container_init()
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 
 	run_container_add(&rc, 3)
 	run_container_add(&rc, 4)
@@ -654,7 +654,7 @@ test_convert_bitmap_to_run_list :: proc(t: ^testing.T) {
 	}
 
 	rc, _ := bitmap_container_convert_to_run_container(bc)
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 	exp_run: Run
 
 	exp_run = Run{start=1, length=1}
@@ -675,7 +675,7 @@ test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
 	testing.expect_value(t, bitmap_container_contains(bc, 0), true)
 
 	rc, _ := bitmap_container_convert_to_run_container(bc)
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 
 	exp_run := Run{start=0, length=0}
 	testing.expect_value(t, rc.run_list[0], exp_run)
@@ -685,20 +685,20 @@ test_convert_bitmap_to_run_list_zero_position :: proc(t: ^testing.T) {
 test_and_array_with_run :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	ac, _ := array_container_init()
-	defer array_container_free(ac)
+	defer array_container_destroy(ac)
 	array_container_add(&ac, 0)
 	array_container_add(&ac, 4)
 
 	// 1 0 0 1 1 0 0 1
 	rc, _ := run_container_init()
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 	run_container_add(&rc, 0)
 	run_container_add(&rc, 3)
 	run_container_add(&rc, 4)
 	run_container_add(&rc, 7)
 
 	new_ac, _ := array_container_and_run_container(ac, rc)
-	defer array_container_free(new_ac)
+	defer array_container_destroy(new_ac)
 
 	testing.expect_value(t, new_ac.cardinality, 2)
 	testing.expect_value(t, array_container_contains(new_ac, 0), true)
@@ -715,13 +715,13 @@ test_and_array_with_run :: proc(t: ^testing.T) {
 test_and_bitmap_with_run_array :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	bc, _ := bitmap_container_init()
-	defer bitmap_container_free(bc)
+	defer bitmap_container_destroy(bc)
 	bitmap_container_add(&bc, 0)
 	bitmap_container_add(&bc, 4)
 
 	// 1 0 0 1 1 0 0 1
 	rc, _ := run_container_init()
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 	run_container_add(&rc, 0)
 	run_container_add(&rc, 3)
 	run_container_add(&rc, 4)
@@ -729,7 +729,7 @@ test_and_bitmap_with_run_array :: proc(t: ^testing.T) {
 
 	c, _ := bitmap_container_and_run_container(bc, rc)
 	new_ac := c.(Array_Container)
-	defer array_container_free(new_ac)
+	defer array_container_destroy(new_ac)
 
 	testing.expect_value(t, new_ac.cardinality, 2)
 	testing.expect_value(t, array_container_contains(new_ac, 0), true)
@@ -746,7 +746,7 @@ test_and_bitmap_with_run_array :: proc(t: ^testing.T) {
 test_and_bitmap_with_run_bitmap :: proc(t: ^testing.T) {
 	// 1 0 0 0 0 0 0 0
 	bc, _ := bitmap_container_init()
-	defer bitmap_container_free(bc)
+	defer bitmap_container_destroy(bc)
 	bitmap_container_add(&bc, 0)
 	bitmap_container_add(&bc, 3)
 	bitmap_container_add(&bc, 4)
@@ -754,14 +754,14 @@ test_and_bitmap_with_run_bitmap :: proc(t: ^testing.T) {
 
 	// 1 0 0 1 1 0 0 1
 	rc, _ := run_container_init()
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 	for i in 0..<5000 {
 		run_container_add(&rc, u16be(i))
 	}
 
 	c, _ := bitmap_container_and_run_container(bc, rc)
 	new_ac := c.(Array_Container)
-	defer array_container_free(new_ac)
+	defer array_container_destroy(new_ac)
 
 	testing.expect_value(t, new_ac.cardinality, 4)
 	testing.expect_value(t, array_container_contains(new_ac, 0), true)
@@ -787,10 +787,10 @@ test_runs_overlap :: proc(t: ^testing.T) {
 @(test)
 test_and_run_with_run :: proc(t: ^testing.T) {
 	rc1, _ := run_container_init()
-	defer run_container_free(rc1)
+	defer run_container_destroy(rc1)
 
 	rc2, _ := run_container_init()
-	defer run_container_free(rc2)
+	defer run_container_destroy(rc2)
 
 	run_container_add(&rc1, 0)
 	run_container_add(&rc1, 2)
@@ -800,7 +800,7 @@ test_and_run_with_run :: proc(t: ^testing.T) {
 
 	c, _ := run_container_and_run_container(rc1, rc2)
 	new_ac, ok := c.(Array_Container)
-	defer array_container_free(new_ac)
+	defer array_container_destroy(new_ac)
 
 	testing.expect_value(t, ok, true)
 	testing.expect_value(t, new_ac.cardinality, 1)
@@ -810,10 +810,10 @@ test_and_run_with_run :: proc(t: ^testing.T) {
 @(test)
 test_or_array_with_run :: proc(t: ^testing.T) {
 	ac, _ := array_container_init()
-	defer array_container_free(ac)
+	defer array_container_destroy(ac)
 
 	rc, _ := run_container_init()
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 
 	array_container_add(&ac, 0)
 	array_container_add(&ac, 2)
@@ -830,7 +830,7 @@ test_or_array_with_run :: proc(t: ^testing.T) {
 
 	c, _ := array_container_or_run_container(ac, rc)
 	new_rc, ok := c.(Run_Container)
-	defer run_container_free(new_rc)
+	defer run_container_destroy(new_rc)
 
 	testing.expect_value(t, ok, true)
 	testing.expect_value(t, container_get_cardinality(new_rc), 5855)
@@ -844,10 +844,10 @@ test_or_array_with_run :: proc(t: ^testing.T) {
 @(test)
 test_bitmap_container_or_run_container :: proc(t: ^testing.T) {
 	bc, _ := bitmap_container_init()
-	defer bitmap_container_free(bc)
+	defer bitmap_container_destroy(bc)
 
 	rc, _ := run_container_init()
-	defer run_container_free(rc)
+	defer run_container_destroy(rc)
 
 	bitmap_container_add(&bc, 0)
 	bitmap_container_add(&bc, 2)
@@ -857,7 +857,7 @@ test_bitmap_container_or_run_container :: proc(t: ^testing.T) {
 	run_container_add(&rc, 6)
 
 	new_bc, _ := bitmap_container_or_run_container(bc, rc)
-	defer bitmap_container_free(new_bc)
+	defer bitmap_container_destroy(new_bc)
 
 	testing.expect_value(t, new_bc.cardinality, 5)
 	testing.expect_value(t, bitmap_container_contains(new_bc, 0), true)
@@ -875,13 +875,13 @@ test_bitmap_container_or_run_container :: proc(t: ^testing.T) {
 @(test)
 test_or_run_with_run :: proc(t: ^testing.T) {
 	rc1, _ := run_container_init()
-	defer run_container_free(rc1)
+	defer run_container_destroy(rc1)
 	run_container_add(&rc1, 6)
 	run_container_add(&rc1, 3)
 	run_container_add(&rc1, 2)
 
 	rc2, _ := run_container_init()
-	defer run_container_free(rc2)
+	defer run_container_destroy(rc2)
 	run_container_add(&rc2, 0)
 	run_container_add(&rc2, 4)
 
@@ -889,7 +889,7 @@ test_or_run_with_run :: proc(t: ^testing.T) {
 	// downgraded to a Array_Container (new cardinality is <= 4096).
 	c, _ := run_container_or_run_container(rc1, rc2)
 	ac, ok := c.(Array_Container)
-	defer array_container_free(ac)
+	defer array_container_destroy(ac)
 
 	testing.expect_value(t, ok, true)
 	testing.expect_value(t, array_container_contains(ac, 0), true)

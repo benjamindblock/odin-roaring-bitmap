@@ -16,7 +16,7 @@ array_container_init :: proc(
 }
 
 @(private)
-array_container_free :: proc(ac: Array_Container) {
+array_container_destroy :: proc(ac: Array_Container) {
 	delete(ac.packed_array)
 }
 
@@ -283,6 +283,6 @@ array_container_convert_to_bitmap_container :: proc(
 		bitmap_container_add(&bc, i) or_return
 	}
 
-	array_container_free(ac)
+	array_container_destroy(ac)
 	return bc, nil
 }

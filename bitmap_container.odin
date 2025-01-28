@@ -16,7 +16,7 @@ bitmap_container_init :: proc(
 	return bc, err
 }
 
-bitmap_container_free :: proc(bc: Bitmap_Container) {
+bitmap_container_destroy :: proc(bc: Bitmap_Container) {
 	free(bc.bitmap)
 }
 
@@ -409,7 +409,7 @@ bitmap_container_convert_to_array_container :: proc(
 		}
 	}
 
-	bitmap_container_free(bc)
+	bitmap_container_destroy(bc)
 	return ac, nil
 }
 
@@ -461,6 +461,6 @@ bitmap_container_convert_to_run_container :: proc(
 		byte = byte & (byte + 1)
 	}
 
-	bitmap_container_free(bc)
+	bitmap_container_destroy(bc)
 	return rc, nil
 }

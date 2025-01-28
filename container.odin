@@ -5,14 +5,14 @@ import "base:runtime"
 import "core:slice"
 
 @(private)
-container_free :: proc(container: Container) {
+container_destroy :: proc(container: Container) {
 	switch c in container {
 	case Array_Container:
-		array_container_free(c)
+		array_container_destroy(c)
 	case Bitmap_Container:
-		bitmap_container_free(c)
+		bitmap_container_destroy(c)
 	case Run_Container:
-		run_container_free(c)
+		run_container_destroy(c)
 	}
 }
 
