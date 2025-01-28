@@ -647,12 +647,39 @@ andnot :: proc(
 	return rb, nil
 }
 
-// TODO: Fill in. Do the cheap way for now and just do a flip+and or something.
 andnot_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
 	allocator := context.allocator,
 ) -> (err: runtime.Allocator_Error) {
+	for k1, container1 in rb1.containers {
+		// Always delete the original container from the first Roaring_Bitmap as we will
+		// either be: 
+		// 1. Replacing it with a new ANDNOT'ed container
+		// 2. Ignoring it because it does not exist in the second Roaring_Bitmap
+		//
+		// The last loop at the end will ensure that we update the cindex appropriately.
+		defer container_free(container1)
+
+		if k1 in rb2.containers {
+			bc1 := container_clone_to_bitmap(container1) or_return
+			defer container_free(bc1)
+
+			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
+			defer container_free(bc2)
+
+			res := bitmap_container_andnot_bitmap_container(bc1, bc2, allocator) or_return
+			rb1.containers[k1] = res
+		}
+	}
+
+	// Remove any empty containers after performing the bitwise AND.
+	for key, container in rb1.containers {
+		if container_get_cardinality(container) == 0 {
+			free_at(rb1, key)
+		}
+	}
+
 	return nil
 }
 
