@@ -366,6 +366,46 @@ test_andnot_inplace_array :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_xor_array :: proc(t: ^testing.T) {
+	rb1, _ := init()
+	defer destroy(&rb1)
+	add(&rb1, 0)
+	add(&rb1, 1)
+
+	rb2, _ := init()
+	defer destroy(&rb2)
+	add(&rb2, 0)
+	add(&rb2, 2)
+
+	rb3, _ := xor(rb1, rb2)
+	defer destroy(&rb3)
+	testing.expect_value(t, contains(rb3, 0), false)
+	testing.expect_value(t, contains(rb3, 1), true)
+	testing.expect_value(t, contains(rb3, 2), true)
+	testing.expect_value(t, contains(rb3, 3), false)
+}
+
+@(test)
+test_xor_inplace_array :: proc(t: ^testing.T) {
+	rb1, _ := init()
+	defer destroy(&rb1)
+	add(&rb1, 0)
+	add(&rb1, 1)
+
+	rb2, _ := init()
+	defer destroy(&rb2)
+	add(&rb1, 0)
+	add(&rb2, 0)
+	add(&rb2, 2)
+
+	xor_inplace(&rb1, rb2)
+	testing.expect_value(t, contains(rb1, 0), false)
+	testing.expect_value(t, contains(rb1, 1), true)
+	testing.expect_value(t, contains(rb1, 2), true)
+	testing.expect_value(t, contains(rb1, 3), false)
+}
+
+@(test)
 test_and_array_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
 	defer destroy(&rb1)

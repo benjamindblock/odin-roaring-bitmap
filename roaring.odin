@@ -617,7 +617,7 @@ and_inplace :: proc(
 	return true, nil
 }
 
-// Performs an AND NOT between of two Roaring_Bitmap structures and returns
+// Performs an ANDNOT (&~) between of two Roaring_Bitmap structures and returns
 // a new Roaring_Bitmap containing the result.
 //
 // TODO: Optimize this with native ANDNOT operations for each variation.
@@ -647,6 +647,12 @@ andnot :: proc(
 	return rb, nil
 }
 
+// Performs an ANDNOT (&~) between of two Roaring_Bitmap in-place, meaning
+// the results will be present in the first bitmap provided.
+//
+// TODO: Optimize this with native ANDNOT operations for each variation.
+// Right now we cheat a by converting to bitmap containers and then performing
+// the ANDNOT with simple binary operations.
 andnot_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
@@ -673,7 +679,7 @@ andnot_inplace :: proc(
 		}
 	}
 
-	// Remove any empty containers after performing the bitwise AND.
+	// Remove any empty containers after performing the bitwise ANDNOT.
 	for key, container in rb1.containers {
 		if container_get_cardinality(container) == 0 {
 			free_at(rb1, key)
@@ -814,21 +820,75 @@ or_inplace :: proc(
 	return true, nil
 }
 
-// TODO: Fill in. Do the cheap way for now and just do a flip+or or something.
+// Performs an XOR (~) between of two Roaring_Bitmap in-place, meaning
+// the results will be present in the first bitmap provided.
+//
+// TODO: Optimize this with native XOR operations for each variation.
+// Right now we cheat a by converting to bitmap containers and then performing
+// the XOR with simple binary operations.
 xor :: proc(
 	rb1: Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
 	allocator := context.allocator,
 ) -> (rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
+	rb = init(allocator) or_return
+
+	for k1, container1 in rb1.containers {
+		if k1 in rb2.containers {
+			bc1 := container_clone_to_bitmap(container1) or_return
+			defer container_free(bc1)
+
+			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
+			defer container_free(bc2)
+
+			res := bitmap_container_xor_bitmap_container(bc1, bc2, allocator) or_return
+			rb.containers[k1] = res
+			cindex_ordered_insert(&rb, k1)
+		}
+	}
+
 	return rb, nil
 }
 
-// TODO: Fill in. Do the cheap way for now and just do a flip+and or something.
+// Performs an XOR (~) between of two Roaring_Bitmap in-place, meaning
+// the results will be present in the first bitmap provided.
+//
+// TODO: Optimize this with native XOR operations for each variation.
+// Right now we cheat a by converting to bitmap containers and then performing
+// the XOR with simple binary operations.
 xor_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
 	allocator := context.allocator,
 ) -> (err: runtime.Allocator_Error) {
+	for k1, container1 in rb1.containers {
+		// Always delete the original container from the first Roaring_Bitmap as we will
+		// either be: 
+		// 1. Replacing it with a new XOR'ed container
+		// 2. Ignoring it because it does not exist in the second Roaring_Bitmap
+		//
+		// The last loop at the end will ensure that we update the cindex appropriately.
+		defer container_free(container1)
+
+		if k1 in rb2.containers {
+			bc1 := container_clone_to_bitmap(container1) or_return
+			defer container_free(bc1)
+
+			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
+			defer container_free(bc2)
+
+			res := bitmap_container_xor_bitmap_container(bc1, bc2, allocator) or_return
+			rb1.containers[k1] = res
+		}
+	}
+
+	// Remove any empty containers after performing the bitwise XOR.
+	for key, container in rb1.containers {
+		if container_get_cardinality(container) == 0 {
+			free_at(rb1, key)
+		}
+	}
+
 	return nil
 }
 
