@@ -843,69 +843,6 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
-	// rb, _ := deserialize("tmp/foo.txt")
-	// rb, _ := deserialize("tmp/optim.txt")
-	// rb, _ := deserialize("tmp/bitmap.txt")
-	rb, _ := deserialize("tmp/bitmapwithruns.bin")
-	defer destroy(&rb)
-
-
-	for k := 0; k < 100000; k+= 1000 {
-		assert(contains(rb, k), "missing!")
-	}
-
-	for k := 100000; k < 200000; k += 1 {
-		assert(contains(rb, k*3), "missing!")
-	}
-
-	fmt.println(rb.cindex)
-	fmt.println("most", most_significant(700000))
-	fmt.println("most", most_significant(720895))
-	fmt.println("most", most_significant(720896))
-	fmt.println("most", most_significant(720897))
-
-	fmt.println(least_significant(700000))
-	fmt.println(rb.containers[most_significant(700000)])
-	fmt.println(rb.containers[most_significant(720895)])
-	fmt.println(rb.containers[most_significant(720896)])
-	assert(contains(rb, 720895), "missing 720895")
-	assert(contains(rb, 720896), "missing 720896")
-
-	for k := 700000; k < 800000; k += 1{
-		s := fmt.tprintf("missing %v\n", k)
-		assert(contains(rb, k), s)
-	}
-
-	// serialize("tmp/out.txt", rb)
-
-	// fmt.println("\nDESER AGAIN")
-	// rb2, _ := deserialize("tmp/out.txt")
-	// fmt.println(rb2.cindex)
-
-	// for k := 0; k < 100000; k+= 1000 {
-	// 	s := fmt.tprintf("missing %v\n", k)
-	// 	assert(contains(rb2, k), s)
-	// }
-
-	// for k := 100000; k < 200000; k += 1 {
-	// 	s := fmt.tprintf("missing %v, %v\n", k, k*3)
-	// 	assert(contains(rb2, k*3), s)
-	// }
-
-	// fmt.println(rb2.cindex)
-	// fmt.println("most", most_significant(700000))
-	// fmt.println("most", most_significant(720895))
-	// fmt.println("most", most_significant(720896))
-	// fmt.println("most", most_significant(720897))
-	// // fmt.println(rb2.containers[most_significant(720895)])
-	// // fmt.println(rb2.containers[most_significant(720896)])
-	// assert(contains(rb2, 720895), "missing 720895")
-	// assert(contains(rb2, 720896), "missing 720896")
-
-	// for k := 700000; k < 800000; k += 1{
-	// 	s := fmt.tprintf("missing %v\n", k)
-	// 	assert(contains(rb2, k), s)
-	// }
 }
 
 main :: proc() {

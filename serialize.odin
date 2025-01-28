@@ -1,6 +1,5 @@
 package roaring
 
-import "core:fmt"
 import "core:os"
 
 @(private)
@@ -29,9 +28,7 @@ serialize :: proc(filepath: string, rb: Roaring_Bitmap) -> Roaring_Error {
 
 write_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (n: int) {
 	n += write_cookie_header(fh, rb)
-	fmt.println("SIZE COOKIE HEADER", n)
 	n += write_descriptive_header(fh, rb)
-	fmt.println("SIZE DESC HEADER", n)
 	n += write_offset_header(fh, rb, n)
 	return n
 }
@@ -47,7 +44,8 @@ write_cookie_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (n: int) {
 		// Run_Container or not.
 		i: u8 = 0
 		byte: u8 = 0
-		for _, container in rb.containers {
+		for key in rb.cindex {
+			container := rb.containers[key]
 			if i == 8 {
 				n += write_u8(fh, byte)
 				i = 0
@@ -68,7 +66,6 @@ write_cookie_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (n: int) {
 	} else {
 		n += write_u16le(fh, SERIAL_COOKIE_NO_RUNCONTAINER)
 		n += write_u16le(fh, 0)
-		fmt.println(len(rb.cindex))
 		n += write_u32le(fh, len(rb.cindex))
 	}
 
@@ -93,7 +90,6 @@ write_descriptive_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (n: int) 
 // then we store (using a 32-bit value) the location (in bytes) of the container
 // from the beginning of the stream (starting with the cookie) for each container.
 write_offset_header :: proc(fh: os.Handle, rb: Roaring_Bitmap, offset: int) -> (n: int) {
-	fmt.println("INITIAL OFFSET", offset)
 	offset := offset
 	has_run_containers := is_optimized(rb)
 
@@ -130,22 +126,6 @@ write_containers :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (n: int) {
 				n += write_u16le(fh, int(v))
 			}
 		case Bitmap_Container:
-			// Write order into each word is:
-			//  7  6  5  4  3  2  1  0
-			// 15 14 13 12 11 10  9  8
-			// for word_i in 0..<1024 {
-			// 	// for byte_i := 7; byte_i >= 0; byte_i -= 1 {
-			// 	// 	byte_from_bitmap := c.bitmap[word_i * 8 + byte_i]
-			// 	// 	n += write_u8(fh, byte_from_bitmap)
-			// 	// }
-
-			// 	// for byte_i := 7; byte_i >= 0; byte_i -= 1 {
-			// 	for byte_i in 0..<8 {
-			// 		byte_from_bitmap := c.bitmap[word_i * 8 + byte_i]
-			// 		n += write_u8(fh, byte_from_bitmap)
-			// 	}
-			// }
-
 			for b in c.bitmap {
 				n += write_u8(fh, b)
 			}

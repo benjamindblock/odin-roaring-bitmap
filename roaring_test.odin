@@ -1047,3 +1047,38 @@ test_flip_array_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(ac.packed_array), 2)
 	testing.expect_value(t, equal, true)
 }
+
+// Ref: https://github.com/RoaringBitmap/RoaringFormatSpec/tree/master/testdata
+@(test)
+test_serialization_and_deserialization :: proc(t: ^testing.T) {
+	rb, _ := deserialize("test_files/bitmapwithoutruns.bin")
+	defer destroy(&rb)
+
+	for k := 0; k < 100000; k+= 1000 {
+		testing.expect_value(t, contains(rb, k), true)
+	}
+
+	for k := 100000; k < 200000; k += 1 {
+		testing.expect_value(t, contains(rb, k*3), true)
+	}
+
+	for k := 700000; k < 800000; k += 1{
+		testing.expect_value(t, contains(rb, k), true)
+	}
+
+	serialize("tmp/out.txt", rb)
+	rb2, _ := deserialize("tmp/out.txt")
+	defer destroy(&rb2)
+
+	for k := 0; k < 100000; k+= 1000 {
+		testing.expect_value(t, contains(rb2, k), true)
+	}
+
+	for k := 100000; k < 200000; k += 1 {
+		testing.expect_value(t, contains(rb2, k*3), true)
+	}
+
+	for k := 700000; k < 800000; k += 1{
+		testing.expect_value(t, contains(rb2, k), true)
+	}
+}

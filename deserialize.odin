@@ -2,7 +2,6 @@ package roaring
 
 import "core:encoding/endian"
 import "core:io"
-import "core:fmt"
 import "core:mem"
 import "core:os"
 
@@ -39,9 +38,9 @@ deserialize :: proc(filepath: string, allocator := context.allocator) -> (rb: Ro
 
 	st: io.Stream = os.stream_from_handle(fh)
 	r := io.to_reader(st)
+	defer io.destroy(r)
 
 	fi := parse_header(r, context.temp_allocator) or_return
-	fmt.println(fi)
 	defer free_all(context.temp_allocator)
 
 	rb = load_roaring_bitmap(r, fi, allocator) or_return
@@ -75,9 +74,7 @@ parse_cookie_header :: proc(
 	if cookie == SERIAL_COOKIE_NO_RUNCONTAINER {
 		fi.has_run_containers = false
 		io.read_at_least(r, buffer[:], 4)
-		fmt.println("b", buffer)
 		num := parse_u32_le(buffer[:]) or_return
-		fmt.println("num", num)
 
 		fi.container_count = int(num)
 	} else if cookie == SERIAL_COOKIE {
@@ -89,10 +86,9 @@ parse_cookie_header :: proc(
 		fi.container_count = num
 
 		bytes_in_bitset := (fi.container_count + 7) / 8
-
 		bitset := make([]byte, bytes_in_bitset, allocator) or_return
 		io.read_at_least(r, bitset[:], bytes_in_bitset)
-		fi.bitset = bitset[:]
+		fi.bitset = bitset
 	} else {
 		return Parse_Error{}
 	}
@@ -126,9 +122,6 @@ parse_descriptive_header :: proc(
 			// byte_i = len(fi.bitset) - 1 - byte_i
 			bit_i := i - (byte_i * 8)
 			bit_is_set := (fi.bitset[byte_i] & (1 << u8(bit_i))) != 0
-
-			fmt.println("BIT IS SET?", bit_is_set, "container", i)
-			fmt.printf("{:8b}\n", fi.bitset[byte_i])
 
 			if bit_is_set {
 				type = .Run
