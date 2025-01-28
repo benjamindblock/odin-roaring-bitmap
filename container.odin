@@ -121,6 +121,27 @@ container_convert_to_optimal :: proc(
 	return optimal, nil
 }
 
+// Takes any container, and returns a fresh clone of it as a new Bitmap_Container.
+// In the case of Array_Container and Run_Container as input, we will perform a
+// conversion.
+container_clone_to_bitmap :: proc(
+	container: Container,
+	allocator := context.allocator,
+) -> (bc: Bitmap_Container, err: runtime.Allocator_Error) {
+	cloned := container_clone(container, allocator) or_return
+
+	switch c in cloned {
+	case Array_Container:
+		bc = array_container_convert_to_bitmap_container(c) or_return
+	case Bitmap_Container:
+		bc = c
+	case Run_Container:
+		bc = run_container_convert_to_bitmap_container(c) or_return
+	}
+
+	return bc, nil
+}
+
 // Clones any Container to a new version of itself.
 @(private)
 container_clone :: proc(

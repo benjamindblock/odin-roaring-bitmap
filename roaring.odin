@@ -617,6 +617,45 @@ and_inplace :: proc(
 	return true, nil
 }
 
+// Performs an AND NOT between of two Roaring_Bitmap structures and returns
+// a new Roaring_Bitmap containing the result.
+//
+// TODO: Optimize this with native ANDNOT operations for each variation.
+// Right now we cheat a by converting to bitmap containers and then performing
+// the ANDNOT with simple binary operations.
+andnot :: proc(
+	rb1: Roaring_Bitmap,
+	rb2: Roaring_Bitmap,
+	allocator := context.allocator,
+) -> (rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
+	rb = init(allocator) or_return
+
+	for k1, container1 in rb1.containers {
+		if k1 in rb2.containers {
+			bc1 := container_clone_to_bitmap(container1) or_return
+			defer container_free(bc1)
+
+			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
+			defer container_free(bc2)
+
+			res := bitmap_container_andnot_bitmap_container(bc1, bc2, allocator) or_return
+			rb.containers[k1] = res
+			cindex_ordered_insert(&rb, k1)
+		}
+	}
+
+	return rb, nil
+}
+
+// TODO: Fill in. Do the cheap way for now and just do a flip+and or something.
+andnot_inplace :: proc(
+	rb1: ^Roaring_Bitmap,
+	rb2: Roaring_Bitmap,
+	allocator := context.allocator,
+) -> (err: runtime.Allocator_Error) {
+	return nil
+}
+
 // Performs an OR (eg., union) of two Roaring_Bitmap structures and returns
 // a new Roaring_Bitmap holding the results.
 or :: proc(
@@ -748,24 +787,6 @@ or_inplace :: proc(
 	return true, nil
 }
 
-// TODO: Fill in. Do the cheap way for now and just do a flip+and or something.
-andnot :: proc(
-	rb1: Roaring_Bitmap,
-	rb2: Roaring_Bitmap,
-	allocator := context.allocator,
-) -> (rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
-	return rb, nil
-}
-
-// TODO: Fill in. Do the cheap way for now and just do a flip+and or something.
-andnot_inplace :: proc(
-	rb1: ^Roaring_Bitmap,
-	rb2: Roaring_Bitmap,
-	allocator := context.allocator,
-) -> (err: runtime.Allocator_Error) {
-	return nil
-}
-
 // TODO: Fill in. Do the cheap way for now and just do a flip+or or something.
 xor :: proc(
 	rb1: Roaring_Bitmap,
@@ -841,6 +862,19 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
+	rb1, _ := init()
+	add(&rb1, 0)
+	add(&rb1, 1)
+
+	rb2, _ := init()
+	add(&rb2, 0)
+	add(&rb2, 2)
+
+	rb3, _ := andnot(rb1, rb2)
+
+	destroy(&rb1)
+	destroy(&rb2)
+	destroy(&rb3)
 }
 
 main :: proc() {

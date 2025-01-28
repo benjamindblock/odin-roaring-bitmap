@@ -291,6 +291,36 @@ bitmap_container_and_run_container :: proc(
 	}
 }
 
+// Performs an ANDNOT operation between two Bitmap_Container and returns the result
+// as a new Bitmap_Container.
+@(private)
+bitmap_container_andnot_bitmap_container :: proc(
+	bc1: Bitmap_Container,
+	bc2: Bitmap_Container,
+	allocator := context.allocator,
+) -> (c: Container, err: runtime.Allocator_Error) {
+	set_count := 0
+	bc := bitmap_container_init(allocator) or_return
+
+	for byte1, i in bc1.bitmap {
+		byte2 := bc2.bitmap[i]
+		res := byte1 &~ byte2
+		set_count += intrinsics.count_ones(int(res))
+		bc.bitmap[i] = res
+		bc.cardinality += intrinsics.count_ones(int(res))
+	}
+
+	// // Convert down to an array container if that makes sense here.
+	// if set_count <= MAX_ARRAY_LENGTH {
+	// 	c = bitmap_container_convert_to_array_container(bc) or_return
+	// } else {
+	// 	c = bc
+	// }
+
+	c = bc
+	return c, nil
+}
+
 // A union between two bitmap containers is straightforward: we execute the
 // bitwise OR between all pairs of corresponding words. There are 1024 words in
 // each container, so 1024 bitwise OR operations are needed. At the same time, we

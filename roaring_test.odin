@@ -309,6 +309,27 @@ test_and_array :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_andnot_array :: proc(t: ^testing.T) {
+	rb1, _ := init()
+	add(&rb1, 0)
+	add(&rb1, 1)
+
+	rb2, _ := init()
+	add(&rb2, 0)
+	add(&rb2, 2)
+
+	rb3, _ := andnot(rb1, rb2)
+	testing.expect_value(t, contains(rb3, 0), false)
+	testing.expect_value(t, contains(rb3, 1), true)
+	testing.expect_value(t, contains(rb3, 2), false)
+	testing.expect_value(t, contains(rb3, 3), false)
+
+	destroy(&rb1)
+	destroy(&rb2)
+	destroy(&rb3)
+}
+
+@(test)
 test_and_inplace_array :: proc(t: ^testing.T) {
 	rb1, _ := init()
 	add(&rb1, 0)
