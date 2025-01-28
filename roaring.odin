@@ -52,20 +52,18 @@ Array_Container :: struct {
 	cardinality: int,
 }
 
-// NOTE: I use a 8192 8-bit words instead of 1024 64-bit words.
 // "A bitmap container is an object made of 1024 64-bit words (using 8 kB)
 // representing an uncompressed bitmap, able to store all sets of 16-bit integers.
 // The container can be serialized as an array of 64-bit words. We also maintain a
 // counter to record how many bits are set to 1."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 5)
+//
+// NOTE: Using 8192 8-bit words instead of 1024 64-bit words.
 Bitmap_Container :: struct {
 	bitmap: ^[8192]u8,
 	cardinality: int,
 }
 
-// FIXME: start should be a u16be because it is an index to an actual location
-// within the container. end can stay as an int because it is just a length.
-//
 // "Unlike an array or bitmap container, a run container does not keep track of its
 // cardinality; its cardinality can be computed on the fly by summing the lengths
 // of the runs. In most applications, we expect the number of runs to be often
