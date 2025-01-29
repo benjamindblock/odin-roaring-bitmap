@@ -33,11 +33,11 @@ Roaring_Error :: union {
 }
 
 Already_Set_Error :: struct {
-	value: int,
+	value: u32,
 }
 
 Not_Set_Error :: struct {
-	value: int,
+	value: u32,
 }
 
 Parse_Error :: struct {}
@@ -181,11 +181,11 @@ free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
 }
 
 // Returns all of the set values of a Roaring_Bitmap as an array.
-to_array :: proc(rb: Roaring_Bitmap, allocator := context.allocator) -> [dynamic]int {
+to_array :: proc(rb: Roaring_Bitmap, allocator := context.allocator) -> [dynamic]u32 {
 	rb := rb
 	iterator := make_iterator(&rb)
 
-	acc := make([dynamic]int, allocator)
+	acc := make([dynamic]u32, allocator)
 	for v in iterate_set_values(&iterator) {
 		append(&acc, v)
 	}
@@ -240,7 +240,7 @@ size_in_bytes :: proc(rb: Roaring_Bitmap) -> (size: int) {
 // a value is already set in the Roaring_Bitmap.
 add :: proc(
 	rb: ^Roaring_Bitmap,
-	n: int,
+	n: u32,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	n_be := u32be(n)
 	i := most_significant(n_be)
@@ -277,7 +277,7 @@ add :: proc(
 // Sets multiple values in a Roaring_Bitmap.
 add_many :: proc(
 	rb: ^Roaring_Bitmap,
-	nums: ..int,
+	nums: ..u32,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	for n in nums {
 		add(rb, n) or_return
@@ -287,7 +287,7 @@ add_many :: proc(
 }
 
 // Adds a number to the bitmap, but fails if that value is already set.
-strict_add :: proc(rb: ^Roaring_Bitmap, n: int) -> (ok: bool, err: Roaring_Error) {
+strict_add :: proc(rb: ^Roaring_Bitmap, n: u32) -> (ok: bool, err: Roaring_Error) {
 	if contains(rb^, n) {
 		return false, Already_Set_Error{n}
 	}
@@ -298,7 +298,7 @@ strict_add :: proc(rb: ^Roaring_Bitmap, n: int) -> (ok: bool, err: Roaring_Error
 // Sets multiple values in a Roaring_Bitmap, but checks that none of them
 // exist first. If at least one of them does, an error is raised before
 // and values are set.
-strict_add_many :: proc(rb: ^Roaring_Bitmap, nums: ..int) -> (ok: bool, err: Roaring_Error) {
+strict_add_many :: proc(rb: ^Roaring_Bitmap, nums: ..u32) -> (ok: bool, err: Roaring_Error) {
 	for n in nums {
 		if contains(rb^, n) {
 			return false, Already_Set_Error{n}
@@ -316,7 +316,7 @@ strict_add_many :: proc(rb: ^Roaring_Bitmap, nums: ..int) -> (ok: bool, err: Roa
 // actually set or not. Use `strict_remove` you do care and want to fail.
 remove :: proc(
 	rb: ^Roaring_Bitmap,
-	n: int,
+	n: u32,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	n_be := u32be(n)
 	i := most_significant(n_be)
@@ -356,7 +356,7 @@ remove :: proc(
 
 remove_many :: proc(
 	rb: ^Roaring_Bitmap,
-	nums: ..int,
+	nums: ..u32,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	for n in nums {
 		remove(rb, n) or_return
@@ -368,7 +368,7 @@ remove_many :: proc(
 // Removes a number from the bitmap, but fails if that value is *not* actually set.
 strict_remove :: proc(
 	rb: ^Roaring_Bitmap,
-	n: int,
+	n: u32,
 ) -> (ok: bool, err: Roaring_Error) {
 	if !contains(rb^, n) {
 		return false, Not_Set_Error{n}
@@ -381,7 +381,7 @@ strict_remove :: proc(
 // is *not* actually set.
 strict_remove_many :: proc(
 	rb: ^Roaring_Bitmap,
-	nums: ..int,
+	nums: ..u32,
 ) -> (ok: bool, err: Roaring_Error) {
 	for n in nums {
 		if !contains(rb^, n) {
@@ -400,8 +400,8 @@ strict_remove_many :: proc(
 // and returns the result as a new Roaring_Bitmap.
 flip :: proc(
 	rb: Roaring_Bitmap,
-	start: int,
-	end: int,
+	start: u32,
+	end: u32,
 ) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
 	new_rb = clone(rb) or_return
 	flip_inplace(&new_rb, start, end) or_return
@@ -411,8 +411,8 @@ flip :: proc(
 // Flips all the bits from a start range (inclusive) to end (inclusive) in a Roaring_Bitmap.
 flip_inplace :: proc(
 	rb: ^Roaring_Bitmap,
-	start: int,
-	end: int,
+	start: u32,
+	end: u32,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	start_be := u32be(start)
 	start_i := most_significant(start_be)
@@ -446,7 +446,7 @@ flip_inplace :: proc(
 }
 
 // Add the value if it is not already present, otherwise remove it.
-flip_at :: proc(rb: ^Roaring_Bitmap, n: int) {
+flip_at :: proc(rb: ^Roaring_Bitmap, n: u32) {
 	if contains(rb^, n) {
 		remove(rb, n)
 	} else {
@@ -492,7 +492,7 @@ has_run_compression :: proc(rb: Roaring_Bitmap) -> bool {
 //   Bitmap: check if the bit at N % 2^16 is set.
 //   Array: use binary search to find N % 2^16 in the sorted array.
 @(require_results)
-contains :: proc(rb: Roaring_Bitmap, n: int) -> (found: bool) {
+contains :: proc(rb: Roaring_Bitmap, n: u32) -> (found: bool) {
 	n := u32be(n)
 	i := most_significant(n)
 	j := least_significant(n)
@@ -516,7 +516,7 @@ contains :: proc(rb: Roaring_Bitmap, n: int) -> (found: bool) {
 
 // Gets the value (0 or 1) of the N-th value.
 @(require_results)
-select :: proc(rb: Roaring_Bitmap, n: int) -> int {
+select :: proc(rb: Roaring_Bitmap, n: u32) -> int {
 	if contains(rb, n) {
 		return 1
 	} else {

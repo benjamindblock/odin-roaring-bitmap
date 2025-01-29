@@ -26,10 +26,10 @@ make_iterator :: proc(rb: ^Roaring_Bitmap) -> Roaring_Bitmap_Iterator {
 //   - set: `true` if the bit at `index` is set.
 //   - index: The next bit of the Bit_Array referenced by `it`.
 //   - ok: `true` if the iterator can continue, `false` if the iterator is done
-iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int, ok: bool) {
+iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: u32, index: int, ok: bool) {
 	main_loop: for {
 		if it.overall_idx >= it.cardinality {
-			return -1, 0, false
+			return 0, 0, false
 		}
 
 		// Get the current container
@@ -48,7 +48,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 			least_significant := c.packed_array[it.bit_idx]
 
 			// Recreate the original value.
-			v = int(transmute(u32be)[2]u16be{most_significant, least_significant})
+			v = u32(transmute(u32be)[2]u16be{most_significant, least_significant})
 
 			it.bit_idx += 1
 
@@ -90,7 +90,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 
 				most_significant := key
 				least_significant := (it.word_idx * 8) + int(it.bit_idx)
-				v = int(transmute(u32be)[2]u16be{most_significant, u16be(least_significant)})
+				v = u32(transmute(u32be)[2]u16be{most_significant, u16be(least_significant)})
 
 				it.bit_idx += 1
 				break main_loop
@@ -106,7 +106,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: int, index: int
 			least_significant := run.start + it.bit_idx
 
 			// Recreate the original value.
-			v = int(transmute(u32be)[2]u16be{most_significant, u16be(least_significant)})
+			v = u32(transmute(u32be)[2]u16be{most_significant, u16be(least_significant)})
 
 			it.bit_idx += 1
 

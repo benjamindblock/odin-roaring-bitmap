@@ -118,7 +118,7 @@ test_setting_values_works_for_bitmap :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer destroy(&rb)
 
-	for i in 0..<4096 {
+	for i in u32(0)..<4096 {
 		add(&rb, i)
 	}
 	testing.expect_value(t, contains(rb, 0), true)
@@ -220,7 +220,7 @@ test_converting_from_bitmap_to_run_container :: proc(t: ^testing.T) {
 	defer destroy(&rb)
 
 	// Confirm all 5000 bits are set in the Bitmap_Container.
-	for i in 0..<5000 {
+	for i in u32(0)..<5000 {
 		add(&rb, i)
 	}
 	testing.expect_value(t, contains(rb, 0), true)
@@ -247,7 +247,7 @@ test_converting_from_run_to_bitmap_container :: proc(t: ^testing.T) {
 	defer destroy(&rb)
 
 	// Confirm all 6000 bits are set in the Bitmap_Container.
-	for i in 0..<6000 {
+	for i in u32(0)..<6000 {
 		add(&rb, i)
 	}
 	optimize(&rb)
@@ -258,7 +258,7 @@ test_converting_from_run_to_bitmap_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, run_container_get_cardinality(rc), 6000)
 	testing.expect_value(t, len(rc.run_list), 1)
 
-	for i in 0..=4094 {
+	for i in u32(0)..=4094 {
 		if i % 2 == 0 {
 			remove(&rb, i)
 		}
@@ -415,7 +415,7 @@ test_and_array_and_bitmap :: proc(t: ^testing.T) {
 
 	rb2, _ := init()
 	defer destroy(&rb2)
-	for i in 0..=4096 {
+	for i in u32(0)..=4096 {
 		add(&rb2, i)
 	}
 
@@ -431,13 +431,13 @@ test_and_array_and_bitmap :: proc(t: ^testing.T) {
 test_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
 	defer destroy(&rb1)
-	for i in 0..=4096 {
+	for i in u32(0)..=4096 {
 		add(&rb1, i)
 	}
 
 	rb2, _ := init()
 	defer destroy(&rb2)
-	for i in 4096..=9999 {
+	for i in u32(4096)..=9999 {
 		add(&rb2, i)
 	}
 
@@ -493,7 +493,7 @@ test_or_array_and_bitmap :: proc(t: ^testing.T) {
 
 	rb2, _ := init()
 	defer destroy(&rb2)
-	for i in 0..=4096 {
+	for i in u32(0)..=4096 {
 		add(&rb2, i)
 	}
 
@@ -516,7 +516,7 @@ test_or_inplace_array_and_bitmap :: proc(t: ^testing.T) {
 
 	rb2, _ := init()
 	defer destroy(&rb2)
-	for i in 0..=4096 {
+	for i in u32(0)..=4096 {
 		add(&rb2, i)
 	}
 
@@ -532,12 +532,12 @@ test_or_inplace_array_and_bitmap :: proc(t: ^testing.T) {
 @(test)
 test_or_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
-	for i in 0..=4096 {
+	for i in u32(0)..=4096 {
 		add(&rb1, i)
 	}
 
 	rb2, _ := init()
-	for i in 123456789..=123456800 {
+	for i in u32(123456789)..=123456800 {
 		add(&rb2, i)
 	}
 
@@ -605,7 +605,7 @@ test_bitmap_container_count_runs :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer destroy(&rb)
 
-	for i in 0..<10000 {
+	for i in u32(0)..<10000 {
 		if i % 2 == 0 {
 			add(&rb, i)
 		}
@@ -622,7 +622,7 @@ test_should_convert_bitmap_container_to_run_container :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer destroy(&rb)
 
-	for i in 0..<5000 {
+	for i in u32(0)..<5000 {
 		add(&rb, i)
 	}
 
@@ -755,7 +755,7 @@ test_and_bitmap_with_run_bitmap :: proc(t: ^testing.T) {
 	// 1 0 0 1 1 0 0 1
 	rc, _ := run_container_init()
 	defer run_container_destroy(rc)
-	for i in 0..<5000 {
+	for i in u32(0)..<5000 {
 		run_container_add(&rc, u16be(i))
 	}
 
@@ -911,7 +911,7 @@ test_container_is_full :: proc(t: ^testing.T) {
 
 	// Should end up with two containers, the first one is full at
 	// 65536 values and the second one half full.
-	for i in 0..=100000 {
+	for i in u32(0)..=100000 {
 		add(&rb, i)
 	}
 
@@ -963,7 +963,7 @@ test_flip_inplace_with_full_container :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer destroy(&rb)
 
-	for i in 0..<65536 {
+	for i in u32(0)..<65536 {
 		add(&rb, i)
 	}
 
@@ -1035,7 +1035,7 @@ test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer destroy(&rb)
 
-	for i in 0..<5000 {
+	for i in u32(0)..<5000 {
 		add(&rb, i)
 	}
 
@@ -1074,7 +1074,7 @@ test_flip_inplace_run_container :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer destroy(&rb)
 
-	for i in 0..<60000 {
+	for i in u32(0)..<60000 {
 		if i > 0 && i < 4 {
 			continue
 		}
@@ -1135,15 +1135,15 @@ test_serialization_and_deserialization :: proc(t: ^testing.T) {
 	rb, _ := deserialize("test_files/bitmapwithoutruns.bin")
 	defer destroy(&rb)
 
-	for k := 0; k < 100000; k+= 1000 {
+	for k: u32 = 0; k < 100000; k+= 1000 {
 		testing.expect_value(t, contains(rb, k), true)
 	}
 
-	for k := 100000; k < 200000; k += 1 {
+	for k: u32 = 100000; k < 200000; k += 1 {
 		testing.expect_value(t, contains(rb, k*3), true)
 	}
 
-	for k := 700000; k < 800000; k += 1{
+	for k: u32 = 700000; k < 800000; k += 1{
 		testing.expect_value(t, contains(rb, k), true)
 	}
 
@@ -1159,15 +1159,15 @@ test_serialization_and_deserialization :: proc(t: ^testing.T) {
 	rb2, _ := deserialize("tmp/out.txt")
 	defer destroy(&rb2)
 
-	for k := 0; k < 100000; k+= 1000 {
+	for k: u32 = 0; k < 100000; k+= 1000 {
 		testing.expect_value(t, contains(rb2, k), true)
 	}
 
-	for k := 100000; k < 200000; k += 1 {
+	for k: u32 = 100000; k < 200000; k += 1 {
 		testing.expect_value(t, contains(rb2, k*3), true)
 	}
 
-	for k := 700000; k < 800000; k += 1{
+	for k: u32 = 700000; k < 800000; k += 1{
 		testing.expect_value(t, contains(rb2, k), true)
 	}
 }
