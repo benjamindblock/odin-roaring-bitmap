@@ -25,12 +25,12 @@ run_container_destroy :: proc(rc: Run_Container) {
 run_container_add :: proc(
 	rc: ^Run_Container,
 	n: u16be,
-) -> (ok: bool, err: runtime.Allocator_Error) {
+) -> (c: Container, err: runtime.Allocator_Error) {
 	// If the Run_List is empty, then create the first Run and add it to the list.
 	if len(rc.run_list) == 0 {
 		new_run := Run{start=n, length=0}
 		append(&rc.run_list, new_run) or_return
-		return true, nil
+		return rc^, nil
 	}
 
 	i, found := run_list_could_contain_binary_search(rc.run_list, n)
@@ -40,7 +40,7 @@ run_container_add :: proc(
 	if !found {
 		new_run := Run{start = n, length = 0}
 		inject_at(&rc.run_list, i, new_run) or_return
-		return true, nil
+		return rc^, nil
 	}
 
 	// Otherwise, we can expand the Run that was found either forwards or backwards
@@ -76,7 +76,7 @@ run_container_add :: proc(
 		}
 	}
 
-	return true, nil
+	return rc^, nil
 }
 
 // Cases:
@@ -88,12 +88,13 @@ run_container_add :: proc(
 run_container_remove :: proc(
 	rc: ^Run_Container,
 	n: u16be,
-) -> (ok: bool, err: runtime.Allocator_Error) {
+	allocator := context.allocator,
+) -> (c: Container, err: runtime.Allocator_Error) {
 	// If we don't find an exact match, we have a problem!
 	// That means the N-value is not actually in the Run_List.
 	i, exact_match := run_list_binary_search(rc.run_list, n)
 	if !exact_match {
-		return false, nil
+		return rc^, nil
 	}
 
 	run_to_check := &rc.run_list[i]
@@ -123,8 +124,12 @@ run_container_remove :: proc(
 		run2.length = run2.length - (run2.start - run1.start)
 		inject_at(&rc.run_list, i, run1) or_return
 	}
-
-	return true, nil
+	
+	if len(rc.run_list) > MAX_RUNS_PERMITTED {
+		return run_container_convert_to_bitmap_container(rc^, allocator)
+	} else {
+		return rc^, nil
+	}
 }
 
 // Checks to see if a value is set in a Run_Container.
@@ -398,7 +403,7 @@ run_container_convert_to_bitmap_container :: proc(
 		start := run.start
 		for i: u16be = 0; i <= run.length; i += 1 {
 			v := start + i
-			bitmap_container_add(&bc, v) or_return
+			bitmap_container_add(&bc, v)
 		}
 	}
 

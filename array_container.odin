@@ -24,16 +24,31 @@ array_container_destroy :: proc(ac: Array_Container) {
 array_container_add :: proc(
 	ac: ^Array_Container,
 	n: u16be,
-) -> (ok: bool, err: runtime.Allocator_Error) {
-	i, found := slice.binary_search(ac.packed_array[:], n)
-
-	if !found {
-		inject_at(&ac.packed_array, i, n) or_return
+	allocator := context.temp_allocator,
+) -> (c: Container, err: runtime.Allocator_Error) {
+	// Special fast insertion at the end of an array container when we can do it.
+	if ac.cardinality > 0 && ac.cardinality < MAX_ARRAY_LENGTH - 1 && ac.packed_array[ac.cardinality - 1] < n {
+		append(&ac.packed_array, n)
 		ac.cardinality += 1
-		return true, nil
-	} else {
-		return false, nil
+		return ac^, nil
 	}
+
+	i, found := slice.binary_search(ac.packed_array[:], n)
+	if found {
+		return ac^, nil
+	}
+
+	// If an array container has 4095 integers, first convert it to a
+	// Bitmap_Container and then set the bit.
+	if ac.cardinality == MAX_ARRAY_LENGTH {
+		bc := array_container_convert_to_bitmap_container(ac^, allocator) or_return
+		bitmap_container_add(&bc, n)
+		return bc, nil
+	}
+
+	inject_at(&ac.packed_array, i, n) or_return
+	ac.cardinality += 1
+	return ac^, nil
 }
 
 @(private)
@@ -213,11 +228,11 @@ array_container_or_array_container :: proc(
 	} else {
 		bc := bitmap_container_init(allocator) or_return
 		for v in ac1.packed_array {
-			bitmap_container_add(&bc, v) or_return
+			bitmap_container_add(&bc, v)
 		}
 		for v in ac2.packed_array {
 			if !bitmap_container_contains(bc, v) {
-				bitmap_container_add(&bc, v) or_return
+				bitmap_container_add(&bc, v)
 			}
 		}
 		c = bc
@@ -239,7 +254,7 @@ array_container_or_bitmap_container :: proc(
 
 	for v in ac.packed_array {
 		if !bitmap_container_contains(new_bc, v) {
-			bitmap_container_add(&new_bc, v) or_return
+			bitmap_container_add(&new_bc, v)
 		}
 	}
 
@@ -280,7 +295,7 @@ array_container_convert_to_bitmap_container :: proc(
 	bc = bitmap_container_init(allocator) or_return
 
 	for i in ac.packed_array {
-		bitmap_container_add(&bc, i) or_return
+		bitmap_container_add(&bc, i)
 	}
 
 	array_container_destroy(ac)

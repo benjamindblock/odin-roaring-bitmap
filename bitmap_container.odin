@@ -7,56 +7,54 @@ import "base:runtime"
 @(private, require_results)
 bitmap_container_init :: proc(
 	allocator := context.allocator
-) -> (Bitmap_Container, runtime.Allocator_Error) {
-	arr, err := new([8192]u8, allocator)
-	bc := Bitmap_Container{
-		bitmap=arr,
-		cardinality=0,
-	}
+) -> (bc: Bitmap_Container, err: runtime.Allocator_Error) {
+	// bc := Bitmap_Container{
+	// 	bitmap=arr,
+	// 	cardinality=0,
+	// }
 	return bc, err
 }
 
-bitmap_container_destroy :: proc(bc: Bitmap_Container) {
-	free(bc.bitmap)
-}
+// NOTE: No longer used as each Bitmap_Container just has its bitmap
+// directly attached to the struct.
+//
+// TODO: Deprecate this.
+// bitmap_container_destroy :: proc(bc: Bitmap_Container, loc := #caller_location) {
+// 	free(bc.bitmap)
+// }
 
 @(private)
 bitmap_container_add :: proc(
 	bc: ^Bitmap_Container,
 	n: u16be,
-) -> (ok: bool, err: runtime.Allocator_Error) {
-	bitmap := bc.bitmap
-
+) {
 	byte_i := n / 8
 	bit_i := n - (byte_i * 8)
 	mask := u8(1 << bit_i)
-	byte := bitmap[byte_i]
-	bitmap[byte_i] = byte | mask
-
-	bc.bitmap = bitmap
+	byte := bc.bitmap[byte_i]
+	bc.bitmap[byte_i] = byte | mask
 	bc.cardinality += 1
-
-	return true, nil
 }
 
 @(private)
 bitmap_container_remove :: proc(
 	bc: ^Bitmap_Container,
 	n: u16be,
-) -> (ok: bool, err: runtime.Allocator_Error) {
-	bitmap := bc.bitmap
-
+	allocator := context.allocator
+) -> (c: Container, err: runtime.Allocator_Error) {
 	byte_i := n / 8
 	bit_i := n - (byte_i * 8)
 	mask := u8(1 << bit_i)
 
-	byte := bitmap[byte_i]
-	bitmap[byte_i] = byte & ~mask
-
-	bc.bitmap = bitmap
+	byte := bc.bitmap[byte_i]
+	bc.bitmap[byte_i] = byte & ~mask
 	bc.cardinality -= 1
 
-	return true, nil
+	if bc.cardinality <= MAX_ARRAY_LENGTH {
+		return bitmap_container_convert_to_array_container(bc^, allocator)
+	} else {
+		return bc^, nil
+	}
 }
 
 @(private)
@@ -409,7 +407,8 @@ bitmap_container_convert_to_array_container :: proc(
 		}
 	}
 
-	bitmap_container_destroy(bc)
+	// TODO: Deprecate this.
+	// bitmap_container_destroy(bc)
 	return ac, nil
 }
 
@@ -461,6 +460,7 @@ bitmap_container_convert_to_run_container :: proc(
 		byte = byte & (byte + 1)
 	}
 
-	bitmap_container_destroy(bc)
+	// TODO: Deprecate this.
+	// bitmap_container_destroy(bc)
 	return rc, nil
 }

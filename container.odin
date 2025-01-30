@@ -10,7 +10,8 @@ container_destroy :: proc(container: Container) {
 	case Array_Container:
 		array_container_destroy(c)
 	case Bitmap_Container:
-		bitmap_container_destroy(c)
+		// TODO: Deprecate this.
+		// bitmap_container_destroy(c)
 	case Run_Container:
 		run_container_destroy(c)
 	}
@@ -48,10 +49,15 @@ container_is_full :: proc(container: Container) -> bool {
 	case Array_Container:
 		return false
 	case Bitmap_Container:
-		and_bc := proc(byte1: u8, byte2: u8) -> u8 {
-			return byte1 & byte2
+		// and_bc := proc(byte1: u8, byte2: u8) -> u8 {
+		// 	return byte1 & byte2
+		// }
+
+		res := c.bitmap[0]
+		for v in c.bitmap {
+			res &= v
 		}
-		res: u8 = slice.reduce(c.bitmap[:], u8(0b11111111), and_bc)
+		// res: u8 = slice.reduce(c.bitmap[:], u8(0b11111111), and_bc)
 		return res == 0b11111111
 	case Run_Container:
 		rl := c.run_list
@@ -156,9 +162,8 @@ container_clone :: proc(
 			cardinality=c.cardinality,
 		}
 	case Bitmap_Container:
-		new_bitmap := new_clone(c.bitmap^, allocator) or_return
 		cloned = Bitmap_Container{
-			bitmap=new_bitmap,
+			bitmap=c.bitmap,
 			cardinality=c.cardinality,
 		}
 	case Run_Container:

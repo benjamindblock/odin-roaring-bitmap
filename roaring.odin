@@ -60,7 +60,7 @@ Array_Container :: struct {
 //
 // NOTE: Using 8192 8-bit words instead of 1024 64-bit words.
 Bitmap_Container :: struct {
-	bitmap: ^[8192]u8,
+	bitmap: [8192]u8,
 	cardinality: int,
 }
 
@@ -255,18 +255,11 @@ add :: proc(
 	container := &rb.containers[i]
 	switch &c in container {
 	case Array_Container:
-		// If an array container has 4,096 integers, first convert it to a
-		// Bitmap_Container and then set the bit.
-		if c.cardinality == MAX_ARRAY_LENGTH {
-			rb.containers[i] = array_container_convert_to_bitmap_container(c, rb.allocator) or_return
-			return add(rb, n)
-		} else {
-			array_container_add(&c, j) or_return
-		}
+		rb.containers[i] = array_container_add(&c, j, rb.allocator) or_return
 	case Bitmap_Container:
-		bitmap_container_add(&c, j) or_return
+		bitmap_container_add(&c, j)
 	case Run_Container:
-		run_container_add(&c, j) or_return
+		rb.containers[i] = run_container_add(&c, j) or_return
 	}
 
 	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
@@ -331,15 +324,9 @@ remove :: proc(
 	case Array_Container:
 		array_container_remove(&c, j) or_return
 	case Bitmap_Container:
-		bitmap_container_remove(&c, j) or_return
-		if c.cardinality <= MAX_ARRAY_LENGTH {
-			rb.containers[i] = bitmap_container_convert_to_array_container(c, rb.allocator) or_return
-		}
+		rb.containers[i] = bitmap_container_remove(&c, j, rb.allocator) or_return
 	case Run_Container:
-		run_container_remove(&c, j) or_return
-		if len(c.run_list) > MAX_RUNS_PERMITTED {
-			rb.containers[i] = run_container_convert_to_bitmap_container(c, rb.allocator) or_return
-		}
+		rb.containers[i] = run_container_remove(&c, j, rb.allocator) or_return
 	}
 
 	// If we have removed the last element(s) in a container, remove the
@@ -971,6 +958,32 @@ least_significant :: proc(n: u32be) -> u16be {
 }
 
 _main :: proc() {
+	// Create a Roaring_Bitmap and assert that setting up to
+	// 4096 values will use a Array_Container.
+	rb, _ := init(context.temp_allocator)
+	defer destroy(&rb)
+
+	for i in u32(0)..<4096 {
+		add(&rb, i)
+	}
+	container := rb.containers[rb.cindex[0]]
+	ac, ac_ok := container.(Array_Container)
+	fmt.println(ac_ok, ac.cardinality)
+
+	// Assert that setting the 4067th value will convert the Array_Container
+	// into a Bitmap_Container.
+	add(&rb, 4096)
+	container = rb.containers[rb.cindex[0]]
+	bc, bc_ok := container.(Bitmap_Container)
+	fmt.println(bc_ok, bc.cardinality)
+
+	// TODO: Fix a memory leak here!!
+	// Assert that removing the 4097th value will convert the Bitmap_Container
+	// back down to a Array_Container.
+	remove(&rb, 4096)
+	container = rb.containers[rb.cindex[0]]
+	ac, ac_ok = container.(Array_Container)
+	fmt.println(ac_ok, ac.cardinality)
 }
 
 main :: proc() {
