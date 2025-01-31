@@ -25,7 +25,7 @@ test_iterate_set_values_arrays :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, nil)
 
 	it := make_iterator(&rb)
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	add(&rb, 2)
 	add(&rb, 230000324)
@@ -84,7 +84,7 @@ test_clone :: proc(t: ^testing.T) {
 	testing.expect_value(t, select(rb, 2), 1)
 
 	rb2, _ := clone(rb)
-	defer destroy(&rb2)
+	defer roaring_bitmap_destroy(&rb2)
 	testing.expect_value(t, select(rb2, 2), 1)
 }
 
@@ -482,18 +482,18 @@ test_or_inplace_array :: proc(t: ^testing.T) {
 @(test)
 test_or_array_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
-	defer destroy(&rb1)
+	defer roaring_bitmap_destroy(&rb1)
 	add(&rb1, 0)
 	add(&rb1, 1)
 
 	rb2, _ := init()
-	defer destroy(&rb2)
+	defer roaring_bitmap_destroy(&rb2)
 	for i in u32(0)..=4096 {
 		add(&rb2, i)
 	}
 
 	rb3, _ := or(rb1, rb2)
-	defer destroy(&rb3)
+	defer roaring_bitmap_destroy(&rb3)
 	testing.expect_value(t, contains(rb3, 0), true)
 	testing.expect_value(t, contains(rb3, 1), true)
 	testing.expect_value(t, contains(rb3, 2), true)
@@ -504,12 +504,12 @@ test_or_array_and_bitmap :: proc(t: ^testing.T) {
 @(test)
 test_or_inplace_array_and_bitmap :: proc(t: ^testing.T) {
 	rb1, _ := init()
-	defer destroy(&rb1)
+	defer roaring_bitmap_destroy(&rb1)
 	add(&rb1, 0)
 	add(&rb1, 1)
 
 	rb2, _ := init()
-	defer destroy(&rb2)
+	defer roaring_bitmap_destroy(&rb2)
 	for i in u32(0)..=4096 {
 		add(&rb2, i)
 	}
@@ -877,7 +877,7 @@ test_or_run_with_run :: proc(t: ^testing.T) {
 @(test)
 test_container_is_full :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	// Should end up with two containers, the first one is full at
 	// 65536 values and the second one half full.
@@ -914,7 +914,7 @@ test_container_is_full :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	flip_inplace(&rb, 0, 1000)
 
@@ -931,7 +931,7 @@ test_flip_inplace_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_with_full_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	for i in u32(0)..<65536 {
 		add(&rb, i)
@@ -951,7 +951,7 @@ test_flip_inplace_with_full_container :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_array_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	add(&rb, 3)
 	add(&rb, 5)
@@ -981,7 +981,7 @@ test_flip_inplace_array_container :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_array_container_remove :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	add(&rb, 3)
 	add(&rb, 4)
@@ -1003,7 +1003,7 @@ test_flip_inplace_array_container_remove :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	for i in u32(0)..<5000 {
 		add(&rb, i)
@@ -1042,7 +1042,7 @@ test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
 @(test)
 test_flip_inplace_run_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	for i in u32(0)..<60000 {
 		if i > 0 && i < 4 {
@@ -1068,13 +1068,13 @@ test_flip_inplace_run_container :: proc(t: ^testing.T) {
 @(test)
 test_flip_array_container :: proc(t: ^testing.T) {
 	rb, _ := init()
-	defer destroy(&rb)
+	defer roaring_bitmap_destroy(&rb)
 
 	add(&rb, 3)
 	add(&rb, 5)
 
 	new_rb, err := flip(rb, 1, 7)
-	defer destroy(&new_rb)
+	defer roaring_bitmap_destroy(&new_rb)
 
 	// Assert the new Roaring_Bitmap has the flipped data.
 	testing.expect_value(t, err, nil)
@@ -1127,7 +1127,7 @@ test_serialization_and_deserialization :: proc(t: ^testing.T) {
 
 	// Test deserialization process with our own written file.
 	rb2, _ := deserialize("tmp/out.txt")
-	defer destroy(&rb2)
+	defer roaring_bitmap_destroy(&rb2)
 
 	for k: u32 = 0; k < 100000; k+= 1000 {
 		testing.expect_value(t, contains(rb2, k), true)

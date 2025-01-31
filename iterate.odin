@@ -111,7 +111,7 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: u32, index: int
 
 			// If we have reached the end of the Run, advance to the next one
 			// in the Run_List.
-			if it.bit_idx >= run.length + 1 {
+			if int(it.bit_idx) >= int(run.length) + 1 {
 				it.bit_idx = 0
 				it.word_idx += 1
 			}

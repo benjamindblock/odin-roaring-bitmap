@@ -7,6 +7,7 @@ import "core:os"
 // FORMAT SPEC
 // https://github.com/RoaringBitmap/RoaringFormatSpec
 
+@(private="file")
 File_Info :: struct {
 	r: io.Reader,
 	has_run_containers: bool,
@@ -17,12 +18,14 @@ File_Info :: struct {
 	containers: []Container_Info,
 }
 
+@(private="file")
 Container_Type :: enum {
 	Array,
 	Bitmap,
 	Run,
 }
 
+@(private="file")
 Container_Info :: struct {
 	key: u16,
 	type: Container_Type,

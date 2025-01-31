@@ -251,7 +251,7 @@ bitmap_container_and_run_container :: proc(
 		// Set the complement of the Run_List to be zero.
 		for run, i in rc.run_list {
 			if i == 0 && run.start > 0 {
-				bitmap_container_unset_range(&new_bc, 0, int(run.length + 1))
+				bitmap_container_unset_range(&new_bc, 0, int(run.length) + 1)
 			} else if i > 0 {
 				prev_run := rc.run_list[i - 1]
 				complement_start := run.start - prev_run.start + 1
@@ -374,7 +374,7 @@ bitmap_container_or_run_container :: proc(
 	new_bc = c.(Bitmap_Container)
 
 	for run in rc.run_list {
-		bitmap_container_set_range(&new_bc, int(run.start), int(run.length + 1))
+		bitmap_container_set_range(&new_bc, int(run.start), int(run.length) + 1)
 	}
 
 	new_bc.cardinality = bitmap_container_get_cardinality(new_bc)

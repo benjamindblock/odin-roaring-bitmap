@@ -47,6 +47,7 @@ Parse_Endian_Error :: struct {}
 // number of integers, followed by a packed array of sorted 16-bit unsigned
 // integers. It can be serialized as an array of 16-bit values."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 5)
+@(private)
 Array_Container :: struct {
 	packed_array: [dynamic]u16,
 	cardinality: int,
@@ -59,6 +60,7 @@ Array_Container :: struct {
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 5)
 //
 // NOTE: Using 8192 8-bit words instead of 1024 64-bit words.
+@(private)
 Bitmap_Container :: struct {
 	bitmap: [8192]u8,
 	cardinality: int,
@@ -70,18 +72,22 @@ Bitmap_Container :: struct {
 // small: the computation of the cardinality should not be a bottleneck."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 6)
 //
-// Length is the real length - 1 so that we can fit it into a u16
+// Length is actually (length - 1) so that it fits into a u16.
+@(private)
 Run :: struct {
 	start: u16,
 	length: u16,
 }
 
+@(private)
 Run_List :: distinct [dynamic]Run
 
+@(private)
 Run_Container :: struct {
 	run_list: Run_List,
 }
 
+@(private)
 Container :: union {
 	Array_Container,
 	Bitmap_Container,
@@ -89,9 +95,11 @@ Container :: union {
 }
 
 // Sorted index to the map.
+@(private)
 Container_Index :: distinct [dynamic]u16
 
 // Repository of every container.
+@(private)
 Container_Map :: distinct map[u16]Container
 
 Roaring_Bitmap :: struct {
@@ -123,14 +131,12 @@ init :: proc(
 	return rb, nil
 }
 
-destroy :: proc(rb: ^Roaring_Bitmap) {
+roaring_bitmap_destroy :: proc(rb: ^Roaring_Bitmap) {
 	for i, _ in rb.containers {
 		free_at(rb, i)
 	}
 
-	clear(&rb.containers)
 	delete(rb.containers)
-	clear(&rb.cindex)
 	delete(rb.cindex)
 
 	assert(len(rb.cindex) == 0, "CIndex should be zero after freeing!")
@@ -146,6 +152,8 @@ clone :: proc(
 		new_rb.containers[key] = container_clone(container, allocator) or_return
 		cindex_ordered_insert(&new_rb, key)
 	}
+
+	assert(len(new_rb.cindex) == len(new_rb.containers), "Containers and CIndex are out of sync!")
 	return new_rb, nil
 }
 
@@ -156,6 +164,7 @@ cindex_ordered_remove :: proc(rb: ^Roaring_Bitmap, n: u16) {
 		return
 	}
 	ordered_remove(&rb.cindex, i)
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 }
 
 @(private)
@@ -209,11 +218,14 @@ print_stats :: proc(rb: Roaring_Bitmap) {
 		}
 	}
 
-	fmt.println("# of containers", len(rb.cindex))
-	fmt.println("Array_Container:", ac)
-	fmt.println("Bitmap_Container", bmc)
-	fmt.println("Run_Container:", rcc)
-	fmt.println("Size in bytes:", size_in_bytes(rb))
+	fmt.println("##  Overall   ##")
+	fmt.println("Count  :", get_cardinality(rb))
+	fmt.println("Mem    :", size_in_bytes(rb), "bytes")
+	fmt.println("\n## Containers ##")
+	fmt.println("Total  :", len(rb.cindex))
+	fmt.println("Array  :", ac)
+	fmt.println("Bitmap :", bmc)
+	fmt.println("Run    :", rcc)
 }
 
 // Prints statistics on the Roaring_Bitmap.
@@ -971,16 +983,10 @@ least_significant :: proc(n: u32) -> u16 {
 	return slice.to_type(as_bytes[0:2], u16)
 }
 
+@(private)
 _main :: proc() {
-	rb1, _ := init(context.temp_allocator)
-	add_many(&rb1, 0, 1, 5, 6)
-
-	rb2, _ := init(context.temp_allocator)
-	add_many(&rb2, 0, 1, 2, 3, 4, 5)
-
-	xor_inplace(&rb1, rb2)
-	arr := to_array(rb1, context.temp_allocator)
-	fmt.println(arr)
+	rb, _ := deserialize("test_files/bitmapwithruns.bin", context.temp_allocator)
+	print_stats(rb)
 }
 
 main :: proc() {

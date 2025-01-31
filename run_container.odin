@@ -153,7 +153,7 @@ run_container_get_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 	}
 
 	for run in rc.run_list {
-		acc += int(run.length + 1)
+		acc += int(run.length) + 1
 	}
 
 	return acc
@@ -202,10 +202,12 @@ run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: u16, end: u16) {
 	return builtin.max(start1, start2), builtin.min(end1, end2)
 }
 
+@(private)
 run_contains :: proc(r: Run, n: u16) -> bool {
 	return n >= r.start && n <= run_end_position(r)
 }
 
+@(private)
 run_after_end_pos :: proc(r: Run) -> u16 {
 	after_end := run_end_position(r)
 	if after_end < max(u16) {
@@ -219,6 +221,7 @@ run_after_end_pos :: proc(r: Run) -> u16 {
 //
 // Eg., run_could_contain(Run{2, 1}, 1) => true (as Run{1, 2} would
 // be the new Run that contains the N-value).
+@(private)
 run_could_contain :: proc(r: Run, n: u16) -> bool {
 	return n >= run_before_start_pos(r) && n <= run_after_end_pos(r)
 }
@@ -227,6 +230,7 @@ run_could_contain :: proc(r: Run, n: u16) -> bool {
 // - true if the value is inside a Run in the Run_List.
 // Otherwise returns the position in the Run_List where a value
 // could be added.
+@(private)
 run_list_binary_search :: proc(rl: Run_List, n: u16) -> (u16, bool) {
 	cmp := proc(r: Run, n: u16) -> (res: slice.Ordering) {
 		if run_contains(r, n) {
@@ -249,6 +253,7 @@ run_list_binary_search :: proc(rl: Run_List, n: u16) -> (u16, bool) {
 // if the N-value is inside it. If found, then that Run either:
 // - Currently contains the N-value
 // - Could be expanded forward or backwards to include it
+@(private)
 run_list_could_contain_binary_search :: proc(rl: Run_List, n: u16) -> (u16, bool) {
 	cmp := proc(r: Run, n: u16) -> (res: slice.Ordering) {
 		if run_could_contain(r, n) {

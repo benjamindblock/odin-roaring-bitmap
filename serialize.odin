@@ -26,6 +26,7 @@ serialize :: proc(filepath: string, rb: Roaring_Bitmap) -> (bytes_written: int, 
 	return bytes_written, nil
 }
 
+@(private)
 write_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (bytes_written: int) {
 	bytes_written += write_cookie_header(fh, rb)
 	bytes_written += write_descriptive_header(fh, rb)
@@ -33,6 +34,7 @@ write_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (bytes_written: int) 
 	return bytes_written
 }
 
+@(private)
 write_cookie_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (bytes_written: int) {
 	has_run_containers := is_optimized(rb)
 
@@ -72,6 +74,7 @@ write_cookie_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (bytes_written
 	return bytes_written
 }
 
+@(private)
 write_descriptive_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (bytes_written: int) {
 	for key in rb.cindex {
 		container := rb.containers[key]
@@ -89,6 +92,7 @@ write_descriptive_header :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (bytes_wr
 // - the cookie takes the value SERIAL_COOKIE and there are at least NO_OFFSET_THRESHOLD containers,
 // then we store (using a 32-bit value) the location (in bytes) of the container
 // from the beginning of the stream (starting with the cookie) for each container.
+@(private)
 write_offset_header :: proc(fh: os.Handle, rb: Roaring_Bitmap, offset: int) -> (bytes_written: int) {
 	offset := offset
 	has_run_containers := is_optimized(rb)
@@ -110,6 +114,7 @@ write_offset_header :: proc(fh: os.Handle, rb: Roaring_Bitmap, offset: int) -> (
 	return bytes_written
 }
 
+@(private)
 sizeof_container_bytes :: proc(container: Container) -> int {
 	switch c in container {
 	case Array_Container:
@@ -123,6 +128,7 @@ sizeof_container_bytes :: proc(container: Container) -> int {
 	return 0
 }
 
+@(private)
 write_containers :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (bytes_written: int) {
 	for key in rb.cindex {
 		switch c in rb.containers[key] {
@@ -146,6 +152,7 @@ write_containers :: proc(fh: os.Handle, rb: Roaring_Bitmap) -> (bytes_written: i
 	return bytes_written
 }
 
+@(private)
 write_u8 :: proc(fh: os.Handle, v: u8) -> (bytes_written: int) {
 	as_bytes := transmute([1]byte)v
 	os.write(fh, as_bytes[:])
@@ -153,6 +160,7 @@ write_u8 :: proc(fh: os.Handle, v: u8) -> (bytes_written: int) {
 	return bytes_written
 }
 
+@(private)
 write_u16le :: proc(fh: os.Handle, v: int) -> (bytes_written: int) {
 	as_bytes := transmute([2]byte)u16le(v)
 	os.write(fh, as_bytes[:])
@@ -160,6 +168,7 @@ write_u16le :: proc(fh: os.Handle, v: int) -> (bytes_written: int) {
 	return bytes_written
 }
 
+@(private)
 write_u32le :: proc(fh: os.Handle, v: int) -> (bytes_written: int) {
 	as_bytes := transmute([4]byte)u32le(v)
 	os.write(fh, as_bytes[:])
