@@ -385,7 +385,7 @@ strict_remove_many :: proc(
 	return true, nil
 }
 
-// Flips all the bits from a start range (inclusive) to end (inclusive) in a Roaring_Bitmap
+// Flips all the bits in a range [start, end] (inclusive) in a Roaring_Bitmap
 // and returns the result as a new Roaring_Bitmap.
 flip :: proc(
 	rb: Roaring_Bitmap,
@@ -399,7 +399,7 @@ flip :: proc(
 	return new_rb, nil
 }
 
-// Flips all the bits from a start range (inclusive) to end (inclusive) in a Roaring_Bitmap.
+// Flips all the bits in a range [start, end] (inclusive) in a Roaring_Bitmap.
 flip_inplace :: proc(
 	rb: ^Roaring_Bitmap,
 	start: u32,
