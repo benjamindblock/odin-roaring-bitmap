@@ -84,15 +84,19 @@ strict_remove_many :: proc(rb: ^Roaring_Bitmap, nums: ..u32) -> (ok: bool, err: 
 ```
 
 ```
-flip :: proc(rb: Roaring_Bitmap, start: u32, end: u32) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {...}
+flip_at :: proc(rb: Roaring_Bitmap, n: u32, allocator := context.allocator) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {...}
 ```
 
 ```
-flip_at :: proc(rb: ^Roaring_Bitmap, n: u32) {...}
+flip_at_inplace :: proc(rb: ^Roaring_Bitmap, n: u32) {...}
 ```
 
 ```
-flip_range :: proc(rb: ^Roaring_Bitmap, start: u32, end: u32) -> (ok: bool, err: runtime.Allocator_Error) {...}
+flip_range :: proc(rb: Roaring_Bitmap, start: u32, end: u32, allocator := context.allocator) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {...}
+```
+
+```
+flip_range_inplace :: proc(rb: ^Roaring_Bitmap, start: u32, end: u32) -> (ok: bool, err: runtime.Allocator_Error) {...}
 ```
 
 ### AND
@@ -169,10 +173,6 @@ estimate_size_in_bytes :: proc(rb: Roaring_Bitmap) -> (size: int) {...}
 
 ```
 print_stats :: proc(rb: Roaring_Bitmap) {...}
-```
-
-```
-size_in_bytes :: proc(rb: Roaring_Bitmap) -> (size: int) {...}
 ```
 
 ### Writing / loading from file

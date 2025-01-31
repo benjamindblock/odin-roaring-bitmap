@@ -220,27 +220,12 @@ print_stats :: proc(rb: Roaring_Bitmap) {
 
 	fmt.println("##  Overall   ##")
 	fmt.println("Count  :", get_cardinality(rb))
-	fmt.println("Mem    :", size_in_bytes(rb), "bytes")
+	fmt.println("Mem    :", estimate_size_in_bytes(rb), "bytes")
 	fmt.println("\n## Containers ##")
 	fmt.println("Total  :", len(rb.cindex))
 	fmt.println("Array  :", ac)
 	fmt.println("Bitmap :", bmc)
 	fmt.println("Run    :", rcc)
-}
-
-// Prints statistics on the Roaring_Bitmap.
-size_in_bytes :: proc(rb: Roaring_Bitmap) -> (size: int) {
-	for _, container in rb.containers {
-		switch c in container {
-		case Array_Container:
-			size += size_of(c.packed_array)
-		case Bitmap_Container:
-			size += size_of(c.bitmap)
-		case Run_Container:
-			size += size_of(c.run_list)
-		}
-	}
-	return size
 }
 
 // Adds a value to the Roaring_Bitmap. If a container doesn’t already exist
@@ -397,22 +382,36 @@ strict_remove_many :: proc(
 	return true, nil
 }
 
+// Add the value if it is not already present, otherwise remove it.
+flip_at :: proc(
+	rb: Roaring_Bitmap,
+	n: u32,
+	allocator := context.allocator,
+) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
+	new_rb = clone(rb, allocator) or_return
+	flip_at_inplace(&new_rb, n)
+
+	assert(len(new_rb.cindex) == len(new_rb.containers), "Containers and CIndex are out of sync!")
+	return new_rb, nil
+}
+
 // Flips all the bits in a range [start, end] (inclusive) in a Roaring_Bitmap
 // and returns the result as a new Roaring_Bitmap.
-flip :: proc(
+flip_range :: proc(
 	rb: Roaring_Bitmap,
 	start: u32,
 	end: u32,
+	allocator := context.allocator,
 ) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
-	new_rb = clone(rb) or_return
-	flip_range(&new_rb, start, end) or_return
+	new_rb = clone(rb, allocator) or_return
+	flip_range_inplace(&new_rb, start, end) or_return
 
 	assert(len(new_rb.cindex) == len(new_rb.containers), "Containers and CIndex are out of sync!")
 	return new_rb, nil
 }
 
 // Flips all the bits in a range [start, end] (inclusive) in a Roaring_Bitmap.
-flip_range :: proc(
+flip_range_inplace :: proc(
 	rb: ^Roaring_Bitmap,
 	start: u32,
 	end: u32,
@@ -450,7 +449,7 @@ flip_range :: proc(
 }
 
 // Add the value if it is not already present, otherwise remove it.
-flip_at :: proc(rb: ^Roaring_Bitmap, n: u32) {
+flip_at_inplace :: proc(rb: ^Roaring_Bitmap, n: u32) {
 	if contains(rb^, n) {
 		remove(rb, n)
 	} else {
