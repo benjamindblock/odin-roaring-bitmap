@@ -476,19 +476,6 @@ estimate_size_in_bytes :: proc(rb: Roaring_Bitmap) -> (size: int) {
 	return size
 }
 
-has_run_compression :: proc(rb: Roaring_Bitmap) -> bool {
-	for _, container in rb.containers {
-		switch c in container {
-		case Array_Container, Bitmap_Container:
-			continue
-		case Run_Container:
-			return true
-		}
-	}
-
-	return false
-}
-
 // To check if an integer N exists, get N’s 16 most significant bits (N / 2^16)
 // and use it to find N’s corresponding container in the Roaring bitmap.
 // If the container doesn’t exist, then N is not in the Roaring bitmap.
@@ -985,8 +972,16 @@ least_significant :: proc(n: u32) -> u16 {
 
 @(private)
 _main :: proc() {
-	rb, _ := deserialize("test_files/bitmapwithruns.bin", context.temp_allocator)
-	print_stats(rb)
+	rb1, _ := init(context.temp_allocator)
+	add_many(&rb1, 1, 2, 3, 700123)
+	fmt.println("Bitmap 1 :", to_array(rb1, context.temp_allocator))
+
+	rb2, _ := init(context.temp_allocator)
+	add_many(&rb2, 0, 4, 6, 700123)
+	fmt.println("Bitmap 2 :", to_array(rb2, context.temp_allocator))
+
+	or_inplace(&rb1, rb2)
+	fmt.println("OR result:", to_array(rb1, context.temp_allocator))
 }
 
 main :: proc() {

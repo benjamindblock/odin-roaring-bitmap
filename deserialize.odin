@@ -48,7 +48,7 @@ deserialize :: proc(filepath: string, allocator := context.allocator) -> (rb: Ro
 }
 
 // Parses the header content of the file and returns a File_Info struct.
-@(require_results)
+@(private, require_results)
 parse_header :: proc(
 	r: io.Reader,
 	allocator := context.allocator,

@@ -130,6 +130,7 @@ container_convert_to_optimal :: proc(
 // Takes any container, and returns a fresh clone of it as a new Bitmap_Container.
 // In the case of Array_Container and Run_Container as input, we will perform a
 // conversion.
+@(private)
 container_clone_to_bitmap :: proc(
 	container: Container,
 	allocator := context.allocator,
