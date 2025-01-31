@@ -25,10 +25,10 @@ Container_Type :: enum {
 }
 
 Container_Info :: struct {
-	key: u16be,
+	key: u16,
 	type: Container_Type,
 	cardinality: int,
-	offset: int,
+	offset: u32,
 }
 
 @(require_results)
@@ -41,8 +41,6 @@ deserialize :: proc(filepath: string, allocator := context.allocator) -> (rb: Ro
 	defer io.destroy(r)
 
 	fi := parse_header(r, context.temp_allocator) or_return
-	defer free_all(context.temp_allocator)
-
 	rb = load_roaring_bitmap(r, fi, allocator) or_return
 	return rb, nil
 }
@@ -139,7 +137,7 @@ parse_descriptive_header :: proc(
 		}
 
 		info := Container_Info {
-			key = u16be(key),
+			key = key,
 			cardinality = cardinality,
 			type = type,
 		}
@@ -170,7 +168,7 @@ parse_offset_header :: proc(
 			io.read_at_least(r, buffer[:], 4)
 			offset := parse_u32_le(buffer[0:4]) or_return
 			cinfo := &fi.containers[i]
-			cinfo.offset = int(offset)
+			cinfo.offset = offset
 		}
 	}
 
@@ -212,7 +210,7 @@ load_array_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitm
 	for _ in 0..<ci.cardinality {
 		io.read_at_least(r, buffer[:], 2)
 		val := parse_u16_le(buffer[0:2]) or_return
-		array_container_add(&ac, u16be(val))
+		array_container_add(&ac, val)
 	}
 
 	ac.cardinality = array_container_get_cardinality(ac)
@@ -227,7 +225,7 @@ load_array_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitm
 // (starting at bit 0)."
 @(private)
 load_bitmap_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap) -> Roaring_Error {
-	bc := bitmap_container_init(rb.allocator) or_return
+	bc := bitmap_container_init()
 
 	buffer: [BYTES_PER_BITMAP]byte
 	io.read_at_least(r, buffer[:], BYTES_PER_BITMAP)
@@ -240,10 +238,6 @@ load_bitmap_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bit
 			bc.bitmap[buffer_i] = buffer[buffer_i]
 		}
 	}
-
-	// for i in 0..<BYTES_PER_BITMAP {
-	// 	bc.bitmap[i] = buffer[i]
-	// }
 
 	bc.cardinality = bitmap_container_get_cardinality(bc)
 	rb.containers[ci.key] = bc
@@ -275,7 +269,7 @@ load_run_container :: proc(r: io.Reader, ci: Container_Info, rb: ^Roaring_Bitmap
 		io.read_at_least(r, buffer[:], 2)
 		length := parse_u16_le(buffer[0:2]) or_return
 
-		run := Run { start = u16be(start), length = u16be(length) }
+		run := Run {start, length}
 		append(&rc.run_list, run)
 	}
 

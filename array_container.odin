@@ -7,7 +7,7 @@ import "core:slice"
 array_container_init :: proc(
 	allocator := context.allocator
 ) -> (Array_Container, runtime.Allocator_Error) {
-	arr, err := make([dynamic]u16be, allocator)
+	arr, err := make([dynamic]u16, allocator)
 	ac := Array_Container{
 		packed_array=arr,
 		cardinality=0,
@@ -23,7 +23,7 @@ array_container_destroy :: proc(ac: Array_Container) {
 @(private)
 array_container_add :: proc(
 	ac: ^Array_Container,
-	n: u16be,
+	n: u16,
 	allocator := context.temp_allocator,
 ) -> (c: Container, err: runtime.Allocator_Error) {
 	// Special fast insertion at the end of an array container when we can do it.
@@ -54,7 +54,7 @@ array_container_add :: proc(
 @(private)
 array_container_remove :: proc(
 	ac: ^Array_Container,
-	n: u16be,
+	n: u16,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	i, found := slice.binary_search(ac.packed_array[:], n)
 
@@ -68,7 +68,7 @@ array_container_remove :: proc(
 }
 
 @(private)
-array_container_contains :: proc(ac: Array_Container, n: u16be) -> (found: bool) {
+array_container_contains :: proc(ac: Array_Container, n: u16) -> (found: bool) {
 	_, found = slice.binary_search(ac.packed_array[:], n)		
 	return found
 }
@@ -226,7 +226,7 @@ array_container_or_array_container :: proc(
 		}
 		c = ac
 	} else {
-		bc := bitmap_container_init(allocator) or_return
+		bc := bitmap_container_init()
 		for v in ac1.packed_array {
 			bitmap_container_add(&bc, v)
 		}
@@ -292,7 +292,7 @@ array_container_convert_to_bitmap_container :: proc(
 	ac: Array_Container,
 	allocator := context.allocator,
 ) -> (bc: Bitmap_Container, err: runtime.Allocator_Error) {
-	bc = bitmap_container_init(allocator) or_return
+	bc = bitmap_container_init()
 
 	for i in ac.packed_array {
 		bitmap_container_add(&bc, i)

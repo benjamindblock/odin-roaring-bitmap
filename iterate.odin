@@ -6,7 +6,7 @@ Roaring_Bitmap_Iterator :: struct {
 	overall_idx: int,    // Progress amongst all set values
 	container_idx: int,  // The container in the cindex we are in
 	word_idx: int,       // The sub-container position (eg., byte, Run) we are at
-	bit_idx: u16be,      // The position in the sub-container
+	bit_idx: u16,      // The position in the sub-container
 }
 
 make_iterator :: proc(rb: ^Roaring_Bitmap) -> Roaring_Bitmap_Iterator {
@@ -41,14 +41,11 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: u32, index: int
 		//   - word_idx: always set to 0 (there is just one array with all the values)
 		//   - bit_idx: the current array position in the array
 		case Array_Container:
-			// Top 16 bits of the number that is set.
+			// NOTE: We are in little endian, so the least significant word
+			// comes first.
 			most_significant := key
-
-			// Bottom 16 bits of the number that is set.
 			least_significant := c.packed_array[it.bit_idx]
-
-			// Recreate the original value.
-			v = u32(transmute(u32be)[2]u16be{most_significant, least_significant})
+			v = transmute(u32)[2]u16{least_significant, most_significant}
 
 			it.bit_idx += 1
 
@@ -88,9 +85,11 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: u32, index: int
 					}
 				}
 
+				// NOTE: We are in little endian, so the least significant word
+				// comes first.
 				most_significant := key
-				least_significant := (it.word_idx * 8) + int(it.bit_idx)
-				v = u32(transmute(u32be)[2]u16be{most_significant, u16be(least_significant)})
+				least_significant := u16(it.word_idx * 8) + it.bit_idx
+				v = transmute(u32)[2]u16{least_significant, most_significant}
 
 				it.bit_idx += 1
 				break main_loop
@@ -102,11 +101,11 @@ iterate_set_values :: proc (it: ^Roaring_Bitmap_Iterator) -> (v: u32, index: int
 		case Run_Container:
 			run := c.run_list[it.word_idx]
 
+			// NOTE: We are in little endian, so the least significant word
+			// comes first.
 			most_significant := key
 			least_significant := run.start + it.bit_idx
-
-			// Recreate the original value.
-			v = u32(transmute(u32be)[2]u16be{most_significant, u16be(least_significant)})
+			v = transmute(u32)[2]u16{least_significant, most_significant}
 
 			it.bit_idx += 1
 

@@ -24,7 +24,7 @@ run_container_destroy :: proc(rc: Run_Container) {
 @(private)
 run_container_add :: proc(
 	rc: ^Run_Container,
-	n: u16be,
+	n: u16,
 ) -> (c: Container, err: runtime.Allocator_Error) {
 	// If the Run_List is empty, then create the first Run and add it to the list.
 	if len(rc.run_list) == 0 {
@@ -67,7 +67,7 @@ run_container_add :: proc(
 		run_to_expand.length += 1
 
 		// Merge with the next run if we need to.
-		if i + 1 < u16be(len(rc.run_list)) {
+		if i + 1 < u16(len(rc.run_list)) {
 			next_run := rc.run_list[i+1]
 			if run_after_end_pos(run_to_expand^) == next_run.start {
 				run_to_expand.length += next_run.length + 1
@@ -87,7 +87,7 @@ run_container_add :: proc(
 @(private)
 run_container_remove :: proc(
 	rc: ^Run_Container,
-	n: u16be,
+	n: u16,
 	allocator := context.allocator,
 ) -> (c: Container, err: runtime.Allocator_Error) {
 	// If we don't find an exact match, we have a problem!
@@ -126,7 +126,7 @@ run_container_remove :: proc(
 	}
 	
 	if len(rc.run_list) > MAX_RUNS_PERMITTED {
-		return run_container_convert_to_bitmap_container(rc^, allocator)
+		return run_container_convert_to_bitmap_container(rc^), nil
 	} else {
 		return rc^, nil
 	}
@@ -134,7 +134,7 @@ run_container_remove :: proc(
 
 // Checks to see if a value is set in a Run_Container.
 @(private)
-run_container_contains :: proc(rc: Run_Container, n: u16be) -> bool {
+run_container_contains :: proc(rc: Run_Container, n: u16) -> bool {
 	if len(rc.run_list) == 0 {
 		return false
 	}
@@ -161,15 +161,15 @@ run_container_get_cardinality :: proc(rc: Run_Container) -> (acc: int) {
 
 // Finds the end position of the given Run in the container (exclusive).
 @(private)
-run_end_position :: proc(run: Run) -> u16be {
+run_end_position :: proc(run: Run) -> u16 {
 	return run.start + run.length
 }
 
 // Finds the value *before* the start of the given Run. If we are already
-// at zero, then return 0. Because we are using u16be, subtracting one from
+// at zero, then return 0. Because we are using u16, subtracting one from
 // zero will result in 65535.
 @(private)
-run_before_start_pos :: proc(run: Run) -> u16be {
+run_before_start_pos :: proc(run: Run) -> u16 {
 	return min(run.start, run.start - 1)
 }
 
@@ -187,7 +187,7 @@ runs_overlap :: proc(r1: Run, r2: Run) -> bool {
 // Finds the range (inclusive at both ends) that two Run
 // structs are overlapping at.
 @(private)
-run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: u16be, end: u16be) {
+run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: u16, end: u16) {
 	if !runs_overlap(r1, r2) {
 		return 0, 0
 	}
@@ -202,13 +202,13 @@ run_overlapping_range :: proc(r1: Run, r2: Run) -> (start: u16be, end: u16be) {
 	return builtin.max(start1, start2), builtin.min(end1, end2)
 }
 
-run_contains :: proc(r: Run, n: u16be) -> bool {
+run_contains :: proc(r: Run, n: u16) -> bool {
 	return n >= r.start && n <= run_end_position(r)
 }
 
-run_after_end_pos :: proc(r: Run) -> u16be {
+run_after_end_pos :: proc(r: Run) -> u16 {
 	after_end := run_end_position(r)
-	if after_end < max(u16be) {
+	if after_end < max(u16) {
 		after_end += 1
 	}
 	return after_end
@@ -219,7 +219,7 @@ run_after_end_pos :: proc(r: Run) -> u16be {
 //
 // Eg., run_could_contain(Run{2, 1}, 1) => true (as Run{1, 2} would
 // be the new Run that contains the N-value).
-run_could_contain :: proc(r: Run, n: u16be) -> bool {
+run_could_contain :: proc(r: Run, n: u16) -> bool {
 	return n >= run_before_start_pos(r) && n <= run_after_end_pos(r)
 }
 
@@ -227,8 +227,8 @@ run_could_contain :: proc(r: Run, n: u16be) -> bool {
 // - true if the value is inside a Run in the Run_List.
 // Otherwise returns the position in the Run_List where a value
 // could be added.
-run_list_binary_search :: proc(rl: Run_List, n: u16be) -> (u16be, bool) {
-	cmp := proc(r: Run, n: u16be) -> (res: slice.Ordering) {
+run_list_binary_search :: proc(rl: Run_List, n: u16) -> (u16, bool) {
+	cmp := proc(r: Run, n: u16) -> (res: slice.Ordering) {
 		if run_contains(r, n) {
 			res = .Equal
 		} else if r.start > n {
@@ -241,7 +241,7 @@ run_list_binary_search :: proc(rl: Run_List, n: u16be) -> (u16be, bool) {
 	}
 
 	i, found := slice.binary_search_by(rl[:], n, cmp)
-	return u16be(i), found
+	return u16(i), found
 }
 
 // Searches for a Run in the Run_List that *could* contain the given N-value.
@@ -249,8 +249,8 @@ run_list_binary_search :: proc(rl: Run_List, n: u16be) -> (u16be, bool) {
 // if the N-value is inside it. If found, then that Run either:
 // - Currently contains the N-value
 // - Could be expanded forward or backwards to include it
-run_list_could_contain_binary_search :: proc(rl: Run_List, n: u16be) -> (u16be, bool) {
-	cmp := proc(r: Run, n: u16be) -> (res: slice.Ordering) {
+run_list_could_contain_binary_search :: proc(rl: Run_List, n: u16) -> (u16, bool) {
+	cmp := proc(r: Run, n: u16) -> (res: slice.Ordering) {
 		if run_could_contain(r, n) {
 			res = .Equal
 		} else if r.start > n {
@@ -263,7 +263,7 @@ run_list_could_contain_binary_search :: proc(rl: Run_List, n: u16be) -> (u16be, 
 	}
 
 	i, found := slice.binary_search_by(rl[:], n, cmp)
-	return u16be(i), found
+	return u16(i), found
 }
 
 // "When computing the intersection between two run containers, we first produce a
@@ -303,7 +303,7 @@ run_container_and_run_container :: proc(
 		if runs_overlap(run1, run2) {
 			overlap_start, overlap_end := run_overlapping_range(run1, run2)
 			for n in overlap_start..=overlap_end {
-				run_container_add(&new_rc, u16be(n)) or_return
+				run_container_add(&new_rc, u16(n)) or_return
 			}
 
 			if run_end_position(run1) < run_end_position(run2) {
@@ -381,7 +381,7 @@ run_container_convert_to_array_container :: proc(
 
 	for run in rc.run_list {
 		start := run.start
-		for i: u16be = 0; i <= run.length; i += 1 {
+		for i: u16 = 0; i <= run.length; i += 1 {
 			v := start + i
 			array_container_add(&ac, v) or_return
 		}
@@ -393,20 +393,17 @@ run_container_convert_to_array_container :: proc(
 
 // Run_Container => Bitmap_Container
 @(private)
-run_container_convert_to_bitmap_container :: proc(
-	rc: Run_Container,
-	allocator := context.allocator,
-) -> (bc: Bitmap_Container, err: runtime.Allocator_Error) {
-	bc = bitmap_container_init(allocator) or_return
+run_container_convert_to_bitmap_container :: proc(rc: Run_Container) -> (bc: Bitmap_Container) {
+	bc = bitmap_container_init()
 
 	for run in rc.run_list {
 		start := run.start
-		for i: u16be = 0; i <= run.length; i += 1 {
+		for i: u16 = 0; i <= run.length; i += 1 {
 			v := start + i
 			bitmap_container_add(&bc, v)
 		}
 	}
 
 	run_container_destroy(rc)
-	return bc, nil
+	return bc
 }

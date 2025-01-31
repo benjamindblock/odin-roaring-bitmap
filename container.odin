@@ -105,7 +105,7 @@ container_convert_to_optimal :: proc(
 			if len(c.run_list) <= MAX_RUNS_PERMITTED {
 				optimal = c
 			} else {
-				optimal = run_container_convert_to_bitmap_container(c, allocator) or_return
+				optimal = run_container_convert_to_bitmap_container(c)
 			}
 
 		// "If the run container has cardinality no more than 4096, then the number
@@ -142,7 +142,7 @@ container_clone_to_bitmap :: proc(
 	case Bitmap_Container:
 		bc = c
 	case Run_Container:
-		bc = run_container_convert_to_bitmap_container(c) or_return
+		bc = run_container_convert_to_bitmap_container(c)
 	}
 
 	return bc, nil
@@ -179,9 +179,9 @@ container_clone :: proc(
 @(private)
 container_flip :: proc(
 	rb: ^Roaring_Bitmap,
-	container_idx: u16be,
-	start: u16be,
-	end: u16be,
+	container_idx: u16,
+	start: u16,
+	end: u16,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	// If the current container is *not* in the Roaring_Bitmap, that means it contains all
 	// zeros and we can create a new container set to 1 (a full Run_List).
@@ -257,7 +257,7 @@ container_flip :: proc(
 		//
 		// I figure we only have to run this at max 8 times per flip, so it's not a huge
 		// perf. hit. An optimization area for the future though when I have time.
-		for byte_i: u16be = start_byte; byte_i <= end_byte; byte_i += 1 {
+		for byte_i: u16 = start_byte; byte_i <= end_byte; byte_i += 1 {
 			bm := c.bitmap[byte_i]
 
 			// If at the start, flip from the starting position until we either:
@@ -309,7 +309,7 @@ container_flip :: proc(
 	// FIXME: Currently doing this the cheap way by converting to a bitmap, then flipping,
 	// and then converting back to either a Run_Container or Bitmap_Container.
 	case Run_Container:
-		rb.containers[container_idx] = run_container_convert_to_bitmap_container(c) or_return
+		rb.containers[container_idx] = run_container_convert_to_bitmap_container(c)
 		container_flip(rb, container_idx, start, end)
 		container = container_convert_to_optimal(rb.containers[container_idx]) or_return
 	}

@@ -4,15 +4,10 @@ import "base:builtin"
 import "base:intrinsics"
 import "base:runtime"
 
+// NOTE: This does nothing but return a zero'd out struct right now.
 @(private, require_results)
-bitmap_container_init :: proc(
-	allocator := context.allocator
-) -> (bc: Bitmap_Container, err: runtime.Allocator_Error) {
-	// bc := Bitmap_Container{
-	// 	bitmap=arr,
-	// 	cardinality=0,
-	// }
-	return bc, err
+bitmap_container_init :: proc() -> (bc: Bitmap_Container) {
+	return bc
 }
 
 // NOTE: No longer used as each Bitmap_Container just has its bitmap
@@ -26,7 +21,7 @@ bitmap_container_init :: proc(
 @(private)
 bitmap_container_add :: proc(
 	bc: ^Bitmap_Container,
-	n: u16be,
+	n: u16,
 ) {
 	byte_i := n / 8
 	bit_i := n - (byte_i * 8)
@@ -39,7 +34,7 @@ bitmap_container_add :: proc(
 @(private)
 bitmap_container_remove :: proc(
 	bc: ^Bitmap_Container,
-	n: u16be,
+	n: u16,
 	allocator := context.allocator
 ) -> (c: Container, err: runtime.Allocator_Error) {
 	byte_i := n / 8
@@ -58,7 +53,7 @@ bitmap_container_remove :: proc(
 }
 
 @(private)
-bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16be) -> (found: bool) {
+bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16) -> (found: bool) {
 	bitmap := bc.bitmap
 
 	byte_i := n / 8
@@ -77,7 +72,7 @@ bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16be) -> (found: boo
 // Sets a range of bits from 0 to 1 in a Bitmap_Container bitmap.
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
 //
-// TODO: Update to u16be params instead of int
+// TODO: Update to u16 params instead of int
 @(private)
 bitmap_container_set_range :: proc(bc: ^Bitmap_Container, start: int, length: int) {
 	end := start + length
@@ -195,14 +190,14 @@ bitmap_container_and_bitmap_container :: proc(
 	}
 
 	if count > MAX_ARRAY_LENGTH {
-		bc := bitmap_container_init(allocator) or_return
+		bc := bitmap_container_init()
 		for byte1, i in bc1.bitmap {
 			byte2 := bc2.bitmap[i]
 			res := byte1 & byte2
 			bc.bitmap[i] = res
 			bc.cardinality += intrinsics.count_ones(int(res))
 		}
-		c = bc
+		return bc, nil
 	} else {
 		ac := array_container_init(allocator) or_return
 		for byte1, i in bc1.bitmap {
@@ -211,15 +206,13 @@ bitmap_container_and_bitmap_container :: proc(
 			for j in 0..<8 {
 				bit_is_set := (res & (1 << u8(j))) != 0
 				if bit_is_set {
-					total_i := u16be((i * 8) + j)
+					total_i := u16((i * 8) + j)
 					array_container_add(&ac, total_i) or_return
 				}
 			}
 		}
-		c = ac
+		return ac, nil
 	}
-
-	return c, nil
 }
 
 // "The intersection between a run container and a bitmap container begins by
@@ -245,8 +238,8 @@ bitmap_container_and_run_container :: proc(
 		nc_ac := array_container_init(allocator) or_return
 		for run in rc.run_list {
 			for i := run.start; i <= run_end_position(run); i += 1 {
-				if bitmap_container_contains(bc, u16be(i)) {
-					array_container_add(&nc_ac, u16be(i)) or_return
+				if bitmap_container_contains(bc, u16(i)) {
+					array_container_add(&nc_ac, u16(i)) or_return
 				}
 			}
 		}
@@ -298,7 +291,7 @@ bitmap_container_andnot_bitmap_container :: proc(
 	allocator := context.allocator,
 ) -> (c: Container, err: runtime.Allocator_Error) {
 	set_count := 0
-	bc := bitmap_container_init(allocator) or_return
+	bc := bitmap_container_init()
 
 	for byte1, i in bc1.bitmap {
 		byte2 := bc2.bitmap[i]
@@ -310,7 +303,7 @@ bitmap_container_andnot_bitmap_container :: proc(
 
 	// Convert down to an array container if that makes sense here.
 	if set_count <= MAX_ARRAY_LENGTH {
-		c = bitmap_container_convert_to_array_container(bc) or_return
+		c = bitmap_container_convert_to_array_container(bc, allocator) or_return
 	} else {
 		c = bc
 	}
@@ -327,7 +320,7 @@ bitmap_container_xor_bitmap_container :: proc(
 	allocator := context.allocator,
 ) -> (c: Container, err: runtime.Allocator_Error) {
 	set_count := 0
-	bc := bitmap_container_init(allocator) or_return
+	bc := bitmap_container_init()
 
 	for byte1, i in bc1.bitmap {
 		byte2 := bc2.bitmap[i]
@@ -357,14 +350,14 @@ bitmap_container_or_bitmap_container :: proc(
 	bc1: Bitmap_Container,
 	bc2: Bitmap_Container,
 	allocator := context.allocator,
-) -> (new_bc: Bitmap_Container, err: runtime.Allocator_Error) {
-	new_bc = bitmap_container_init(allocator) or_return
+) -> (new_bc: Bitmap_Container) {
+	new_bc = bitmap_container_init()
 	for byte, i in bc1.bitmap {
 		res := byte | bc2.bitmap[i]
 		new_bc.bitmap[i] = res
 		new_bc.cardinality = intrinsics.count_ones(int(res))
 	}
-	return new_bc, nil
+	return new_bc
 }
 
 // "The union between a run container and a bitmap container is computed by first
@@ -401,7 +394,7 @@ bitmap_container_convert_to_array_container :: proc(
 		for j in 0..<8 {
 			bit_is_set := (byte & (1 << u8(j))) != 0
 			if bit_is_set {
-				total_i := u16be((i * 8) + j)
+				total_i := u16((i * 8) + j)
 				array_container_add(&ac, total_i) or_return
 			}
 		}
@@ -454,7 +447,7 @@ bitmap_container_convert_to_run_container :: proc(
 			y = k + 8 * (i - 1)
 		}
 
-		run := Run{start=u16be(x), length=u16be(y - x - 1)}
+		run := Run{start=u16(x), length=u16(y - x - 1)}
 		append(&rc.run_list, run)
 
 		byte = byte & (byte + 1)

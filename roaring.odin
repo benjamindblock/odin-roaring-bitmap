@@ -48,7 +48,7 @@ Parse_Endian_Error :: struct {}
 // integers. It can be serialized as an array of 16-bit values."
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 5)
 Array_Container :: struct {
-	packed_array: [dynamic]u16be,
+	packed_array: [dynamic]u16,
 	cardinality: int,
 }
 
@@ -72,8 +72,8 @@ Bitmap_Container :: struct {
 //
 // Length is the real length - 1 so that we can fit it into a u16
 Run :: struct {
-	start: u16be,
-	length: u16be,
+	start: u16,
+	length: u16,
 }
 
 Run_List :: distinct [dynamic]Run
@@ -89,10 +89,10 @@ Container :: union {
 }
 
 // Sorted index to the map.
-Container_Index :: distinct [dynamic]u16be
+Container_Index :: distinct [dynamic]u16
 
 // Repository of every container.
-Container_Map :: distinct map[u16be]Container
+Container_Map :: distinct map[u16]Container
 
 Roaring_Bitmap :: struct {
 	cindex: Container_Index,
@@ -150,7 +150,7 @@ clone :: proc(
 }
 
 @(private)
-cindex_ordered_remove :: proc(rb: ^Roaring_Bitmap, n: u16be) {
+cindex_ordered_remove :: proc(rb: ^Roaring_Bitmap, n: u16) {
 	i, found := slice.binary_search(rb.cindex[:], n)
 	if !found {
 		return
@@ -159,7 +159,7 @@ cindex_ordered_remove :: proc(rb: ^Roaring_Bitmap, n: u16be) {
 }
 
 @(private)
-cindex_ordered_insert :: proc(rb: ^Roaring_Bitmap, n: u16be) -> (ok: bool, err: runtime.Allocator_Error) {
+cindex_ordered_insert :: proc(rb: ^Roaring_Bitmap, n: u16) -> (ok: bool, err: runtime.Allocator_Error) {
 	i, found := slice.binary_search(rb.cindex[:], n)
 	if found {
 		return true, nil
@@ -172,7 +172,7 @@ cindex_ordered_insert :: proc(rb: ^Roaring_Bitmap, n: u16be) -> (ok: bool, err: 
 
 // Removes a container and its position in the index from the Roaring_Bitmap.
 @(private)
-free_at :: proc(rb: ^Roaring_Bitmap, i: u16be) {
+free_at :: proc(rb: ^Roaring_Bitmap, i: u16) {
 	container := rb.containers[i]
 	container_destroy(container)
 	delete_key(&rb.containers, i)
@@ -242,9 +242,8 @@ add :: proc(
 	rb: ^Roaring_Bitmap,
 	n: u32,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
-	n_be := u32be(n)
-	i := most_significant(n_be)
-	j := least_significant(n_be)
+	i := most_significant(n)
+	j := least_significant(n)
 
 	if !(i in rb.containers) {
 		rb.containers[i] = array_container_init(rb.allocator) or_return
@@ -263,7 +262,6 @@ add :: proc(
 	}
 
 	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
-
 	return true, nil
 }
 
@@ -276,6 +274,7 @@ add_many :: proc(
 		add(rb, n) or_return
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return true, nil
 }
 
@@ -285,6 +284,7 @@ strict_add :: proc(rb: ^Roaring_Bitmap, n: u32) -> (ok: bool, err: Roaring_Error
 		return false, Already_Set_Error{n}
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return add(rb, n)
 }
 
@@ -302,6 +302,7 @@ strict_add_many :: proc(rb: ^Roaring_Bitmap, nums: ..u32) -> (ok: bool, err: Roa
 		add(rb, n) or_return
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return true, nil
 }
 
@@ -311,9 +312,8 @@ remove :: proc(
 	rb: ^Roaring_Bitmap,
 	n: u32,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
-	n_be := u32be(n)
-	i := most_significant(n_be)
-	j := least_significant(n_be)
+	i := most_significant(n)
+	j := least_significant(n)
 
 	if !(i in rb.containers) {
 		return true, nil
@@ -337,7 +337,6 @@ remove :: proc(
 	}
 
 	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
-
 	return true, nil
 }
 
@@ -349,6 +348,7 @@ remove_many :: proc(
 		remove(rb, n) or_return
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return true, nil
 }
 
@@ -361,6 +361,7 @@ strict_remove :: proc(
 		return false, Not_Set_Error{n}
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return remove(rb, n)
 }
 
@@ -380,6 +381,7 @@ strict_remove_many :: proc(
 		remove(rb, n) or_return
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return true, nil
 }
 
@@ -392,6 +394,8 @@ flip :: proc(
 ) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
 	new_rb = clone(rb) or_return
 	flip_inplace(&new_rb, start, end) or_return
+
+	assert(len(new_rb.cindex) == len(new_rb.containers), "Containers and CIndex are out of sync!")
 	return new_rb, nil
 }
 
@@ -401,11 +405,11 @@ flip_inplace :: proc(
 	start: u32,
 	end: u32,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
-	start_be := u32be(start)
+	start_be := u32(start)
 	start_i := most_significant(start_be)
 	start_j := least_significant(start_be)
 
-	end_be := u32be(end)
+	end_be := u32(end)
 	end_i := most_significant(end_be)
 	end_j := least_significant(end_be)
 
@@ -429,6 +433,7 @@ flip_inplace :: proc(
 		}
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return true, nil
 }
 
@@ -480,7 +485,6 @@ has_run_compression :: proc(rb: Roaring_Bitmap) -> bool {
 //   Array: use binary search to find N % 2^16 in the sorted array.
 @(require_results)
 contains :: proc(rb: Roaring_Bitmap, n: u32) -> (found: bool) {
-	n := u32be(n)
 	i := most_significant(n)
 	j := least_significant(n)
 
@@ -558,6 +562,7 @@ and :: proc(
 		}
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return rb, nil
 }
 
@@ -570,47 +575,37 @@ and :: proc(
 and_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
-	allocator := context.allocator,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
-	for k1, v1 in rb1.containers {
-		// Always delete the original container from the first Roaring_Bitmap as we will
-		// either be: 
-		// 1. Replacing it with a new AND'ed container
-		// 2. Ignoring it because it does not exist in the second Roaring_Bitmap
-		//
-		// The last loop at the end will ensure that we update the cindex appropriately.
-		defer container_destroy(v1)
-
+	for k1, container1 in rb1.containers {
 		if k1 in rb2.containers {
-			v2 := rb2.containers[k1]
-
-			switch c1 in v1 {
+			container2 := rb2.containers[k1]
+			switch c1 in container1 {
 			case Array_Container:
-				switch c2 in v2 {
+				switch c2 in container2 {
 				case Array_Container:
-					rb1.containers[k1] = array_container_and_array_container(c1, c2, allocator) or_return
+					rb1.containers[k1] = array_container_and_array_container(c1, c2, rb1.allocator) or_return
 				case Bitmap_Container:
-					rb1.containers[k1] = array_container_and_bitmap_container(c1, c2, allocator) or_return
+					rb1.containers[k1] = array_container_and_bitmap_container(c1, c2, rb1.allocator) or_return
 				case Run_Container:
-					rb1.containers[k1] = array_container_and_run_container(c1, c2, allocator) or_return
+					rb1.containers[k1] = array_container_and_run_container(c1, c2, rb1.allocator) or_return
 				}
 			case Bitmap_Container:
-				switch c2 in v2 {
+				switch c2 in container2 {
 				case Array_Container:
-					rb1.containers[k1] = array_container_and_bitmap_container(c2, c1, allocator) or_return
+					rb1.containers[k1] = array_container_and_bitmap_container(c2, c1, rb1.allocator) or_return
 				case Bitmap_Container:
-					rb1.containers[k1] = bitmap_container_and_bitmap_container(c1, c2, allocator) or_return
+					rb1.containers[k1] = bitmap_container_and_bitmap_container(c1, c2, rb1.allocator) or_return
 				case Run_Container:
-					rb1.containers[k1] = bitmap_container_and_run_container(c1, c2, allocator) or_return
+					rb1.containers[k1] = bitmap_container_and_run_container(c1, c2, rb1.allocator) or_return
 				}
 			case Run_Container:
-				switch c2 in v2 {
+				switch c2 in container2 {
 				case Array_Container:
-					rb1.containers[k1] = array_container_and_run_container(c2, c1, allocator) or_return
+					rb1.containers[k1] = array_container_and_run_container(c2, c1, rb1.allocator) or_return
 				case Bitmap_Container:
-					rb1.containers[k1] = bitmap_container_and_run_container(c2, c1, allocator) or_return
+					rb1.containers[k1] = bitmap_container_and_run_container(c2, c1, rb1.allocator) or_return
 				case Run_Container:
-					rb1.containers[k1] = run_container_and_run_container(c1, c2, allocator) or_return
+					rb1.containers[k1] = run_container_and_run_container(c1, c2, rb1.allocator) or_return
 				}
 			}
 		}
@@ -618,11 +613,12 @@ and_inplace :: proc(
 
 	// Remove any empty containers after performing the bitwise AND.
 	for key, container in rb1.containers {
-		if container_get_cardinality(container) == 0 {
+		if !(key in rb2.containers) || container_get_cardinality(container) == 0 {
 			free_at(rb1, key)
 		}
 	}
 
+	assert(len(rb1.cindex) == len(rb1.containers), "Containers and CIndex are out of sync!")
 	return true, nil
 }
 
@@ -640,19 +636,23 @@ andnot :: proc(
 	rb = init(allocator) or_return
 
 	for k1, container1 in rb1.containers {
-		if k1 in rb2.containers {
-			bc1 := container_clone_to_bitmap(container1) or_return
-			defer container_destroy(bc1)
+		if !(k1 in rb2.containers) {
+			rb.containers[k1] = container_clone(container1, allocator) or_return
+			cindex_ordered_insert(&rb, k1)
+			continue
+		}
 
-			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
-			defer container_destroy(bc2)
+		bc1 := container_clone_to_bitmap(container1) or_return
+		bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
+		res := bitmap_container_andnot_bitmap_container(bc1, bc2, allocator) or_return
 
-			res := bitmap_container_andnot_bitmap_container(bc1, bc2, allocator) or_return
+		if container_get_cardinality(res) > 0 {
 			rb.containers[k1] = res
 			cindex_ordered_insert(&rb, k1)
 		}
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return rb, nil
 }
 
@@ -695,6 +695,7 @@ andnot_inplace :: proc(
 		}
 	}
 
+	assert(len(rb1.cindex) == len(rb1.containers), "Containers and CIndex are out of sync!")
 	return nil
 }
 
@@ -733,7 +734,7 @@ or :: proc(
 				case Array_Container:
 					rb.containers[k1] = array_container_or_bitmap_container(c2, c1, allocator) or_return
 				case Bitmap_Container:
-					rb.containers[k1] = bitmap_container_or_bitmap_container(c1, c2, allocator) or_return
+					rb.containers[k1] = bitmap_container_or_bitmap_container(c1, c2)
 				case Run_Container:
 					rb.containers[k1] = bitmap_container_or_run_container(c1, c2, allocator) or_return
 				}
@@ -761,6 +762,7 @@ or :: proc(
 		}
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return rb, nil
 }
 
@@ -802,7 +804,7 @@ or_inplace :: proc(
 			case Array_Container:
 				rb1.containers[k1] = array_container_or_bitmap_container(c2, c1, allocator) or_return
 			case Bitmap_Container:
-				rb1.containers[k1] = bitmap_container_or_bitmap_container(c1, c2, allocator) or_return
+				rb1.containers[k1] = bitmap_container_or_bitmap_container(c1, c2)
 			case Run_Container:
 				rb1.containers[k1] = bitmap_container_or_run_container(c1, c2, allocator) or_return
 			}
@@ -826,6 +828,7 @@ or_inplace :: proc(
 		}
 	}
 
+	assert(len(rb1.cindex) == len(rb1.containers), "Containers and CIndex are out of sync!")
 	return true, nil
 }
 
@@ -851,11 +854,27 @@ xor :: proc(
 			defer container_destroy(bc2)
 
 			res := bitmap_container_xor_bitmap_container(bc1, bc2, allocator) or_return
-			rb.containers[k1] = res
+			if container_get_cardinality(res) > 0 {
+				rb.containers[k1] = res
+				cindex_ordered_insert(&rb, k1)
+			}
+		} else {
+			// If this container *is not* present in the second bitmap, then we can
+			// add the entire thing.
+			rb.containers[k1] = container_clone(container1, allocator) or_return
 			cindex_ordered_insert(&rb, k1)
 		}
 	}
 
+	// Add any missing containers from the second bitmap.
+	for k2, container2 in rb2.containers {
+		if !(k2 in rb1.containers) {
+			rb.containers[k2] = container_clone(container2, allocator) or_return
+			cindex_ordered_insert(&rb, k2)
+		}
+	}
+
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return rb, nil
 }
 
@@ -871,23 +890,19 @@ xor_inplace :: proc(
 	allocator := context.allocator,
 ) -> (err: runtime.Allocator_Error) {
 	for k1, container1 in rb1.containers {
-		// Always delete the original container from the first Roaring_Bitmap as we will
-		// either be: 
-		// 1. Replacing it with a new XOR'ed container
-		// 2. Ignoring it because it does not exist in the second Roaring_Bitmap
-		//
-		// The last loop at the end will ensure that we update the cindex appropriately.
-		defer container_destroy(container1)
-
 		if k1 in rb2.containers {
 			bc1 := container_clone_to_bitmap(container1) or_return
-			defer container_destroy(bc1)
-
 			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
-			defer container_destroy(bc2)
-
 			res := bitmap_container_xor_bitmap_container(bc1, bc2, allocator) or_return
 			rb1.containers[k1] = res
+		}
+	}
+
+	// Add any missing containers from the second bitmap.
+	for k2, container2 in rb2.containers {
+		if !(k2 in rb1.containers) {
+			rb1.containers[k2] = container_clone(container2, allocator) or_return
+			cindex_ordered_insert(rb1, k2)
 		}
 	}
 
@@ -898,6 +913,7 @@ xor_inplace :: proc(
 		}
 	}
 
+	assert(len(rb1.cindex) == len(rb1.containers), "Containers and CIndex are out of sync!")
 	return nil
 }
 
@@ -923,6 +939,7 @@ optimize :: proc(rb: ^Roaring_Bitmap) -> (err: runtime.Allocator_Error) {
 		containers[key] = container_convert_to_optimal(container, rb.allocator) or_return
 	}
 
+	assert(len(rb.cindex) == len(rb.containers), "Containers and CIndex are out of sync!")
 	return nil
 }
 
@@ -941,49 +958,35 @@ is_optimized :: proc(rb: Roaring_Bitmap) -> bool {
 	return false
 }
 
-// Returns a u16 in big-endian made up of the 16 most significant
-// bits in a u32be number.
+// Returns a u16 [little-endian] made up of the 16 most significant
+// bits in a u32 number.
 @(private, require_results)
-most_significant :: proc(n: u32be) -> u16be {
+most_significant :: proc(n: u32) -> u16 {
 	as_bytes := transmute([4]byte)n
-	return slice.to_type(as_bytes[0:2], u16be)
+	return slice.to_type(as_bytes[2:4], u16)
 }
 
-// Returns a u16 in big-endian made up of the 16 least significant
-// bits in a u32be number.
+// Returns a u16 [little-endian] made up of the 16 least significant
+// bits in a u32 number.
 @(private, require_results)
-least_significant :: proc(n: u32be) -> u16be {
+least_significant :: proc(n: u32) -> u16 {
 	as_bytes := transmute([4]byte)n
-	return slice.to_type(as_bytes[2:4], u16be)
+	return slice.to_type(as_bytes[0:2], u16)
 }
 
 _main :: proc() {
-	// Create a Roaring_Bitmap and assert that setting up to
-	// 4096 values will use a Array_Container.
-	rb, _ := init(context.temp_allocator)
-	defer destroy(&rb)
+	rb1, _ := init(context.temp_allocator)
+	add_many(&rb1, 0, 1, 5, 6)
 
-	for i in u32(0)..<4096 {
-		add(&rb, i)
-	}
-	container := rb.containers[rb.cindex[0]]
-	ac, ac_ok := container.(Array_Container)
-	fmt.println(ac_ok, ac.cardinality)
+	rb2, _ := init(context.temp_allocator)
+	add_many(&rb2, 0, 1, 2, 3, 4, 5)
 
-	// Assert that setting the 4067th value will convert the Array_Container
-	// into a Bitmap_Container.
-	add(&rb, 4096)
-	container = rb.containers[rb.cindex[0]]
-	bc, bc_ok := container.(Bitmap_Container)
-	fmt.println(bc_ok, bc.cardinality)
-
-	// TODO: Fix a memory leak here!!
-	// Assert that removing the 4097th value will convert the Bitmap_Container
-	// back down to a Array_Container.
-	remove(&rb, 4096)
-	container = rb.containers[rb.cindex[0]]
-	ac, ac_ok = container.(Array_Container)
-	fmt.println(ac_ok, ac.cardinality)
+	xor_inplace(&rb1, rb2)
+	exp := [4]u32{2, 3, 4, 6}
+	arr := to_array(rb1, context.temp_allocator)
+	fmt.println(exp)
+	fmt.println(arr)
+	fmt.println(slice.equal(exp[:], arr[:]))
 }
 
 main :: proc() {
