@@ -405,14 +405,14 @@ flip :: proc(
 	end: u32,
 ) -> (new_rb: Roaring_Bitmap, err: runtime.Allocator_Error) {
 	new_rb = clone(rb) or_return
-	flip_inplace(&new_rb, start, end) or_return
+	flip_range(&new_rb, start, end) or_return
 
 	assert(len(new_rb.cindex) == len(new_rb.containers), "Containers and CIndex are out of sync!")
 	return new_rb, nil
 }
 
 // Flips all the bits in a range [start, end] (inclusive) in a Roaring_Bitmap.
-flip_inplace :: proc(
+flip_range :: proc(
 	rb: ^Roaring_Bitmap,
 	start: u32,
 	end: u32,

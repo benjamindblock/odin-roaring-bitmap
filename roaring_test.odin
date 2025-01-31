@@ -912,11 +912,11 @@ test_container_is_full :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_flip_inplace_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
+test_flip_range_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer roaring_bitmap_destroy(&rb)
 
-	flip_inplace(&rb, 0, 1000)
+	flip_range(&rb, 0, 1000)
 
 	testing.expect_value(t, len(rb.cindex), 1)
 	testing.expect_value(t, len(rb.containers), 1)
@@ -929,7 +929,7 @@ test_flip_inplace_with_empty_roaring_bitmap :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_flip_inplace_with_full_container :: proc(t: ^testing.T) {
+test_flip_range_with_full_container :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer roaring_bitmap_destroy(&rb)
 
@@ -943,20 +943,20 @@ test_flip_inplace_with_full_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, container_is_full(c), true)
 	testing.expect_value(t, container_get_cardinality(c), 65536)
 
-	flip_inplace(&rb, 0, 65535)
+	flip_range(&rb, 0, 65535)
 	testing.expect_value(t, len(rb.cindex), 0)
 	testing.expect_value(t, len(rb.containers), 0)
 }
 
 @(test)
-test_flip_inplace_array_container :: proc(t: ^testing.T) {
+test_flip_range_array_container :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer roaring_bitmap_destroy(&rb)
 
 	add(&rb, 3)
 	add(&rb, 5)
 
-	flip_inplace(&rb, 1, 7)
+	flip_range(&rb, 1, 7)
 	testing.expect_value(t, len(rb.cindex), 1)
 	testing.expect_value(t, len(rb.containers), 1)
 	ac, ac_ok := rb.containers[rb.cindex[0]].(Array_Container)
@@ -967,7 +967,7 @@ test_flip_inplace_array_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, equal, true)
 
 	// Flip back and assert is correct.
-	flip_inplace(&rb, 1, 7)
+	flip_range(&rb, 1, 7)
 	testing.expect_value(t, len(rb.cindex), 1)
 	testing.expect_value(t, len(rb.containers), 1)
 	ac, ac_ok = rb.containers[rb.cindex[0]].(Array_Container)
@@ -979,17 +979,17 @@ test_flip_inplace_array_container :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_flip_inplace_array_container_remove :: proc(t: ^testing.T) {
+test_flip_range_array_container_remove :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer roaring_bitmap_destroy(&rb)
 
 	add(&rb, 3)
 	add(&rb, 4)
-	flip_inplace(&rb, 3, 4)
+	flip_range(&rb, 3, 4)
 	testing.expect_value(t, len(rb.cindex), 0)
 	testing.expect_value(t, len(rb.containers), 0)
 
-	flip_inplace(&rb, 3, 4)
+	flip_range(&rb, 3, 4)
 	testing.expect_value(t, len(rb.cindex), 1)
 	testing.expect_value(t, len(rb.containers), 1)
 
@@ -1001,7 +1001,7 @@ test_flip_inplace_array_container_remove :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
+test_flip_range_bitmap_container :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer roaring_bitmap_destroy(&rb)
 
@@ -1016,7 +1016,7 @@ test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, bc.cardinality, 5000)
 
 	// Flip from 6 to 9 to ensure we cross bytes.
-	flip_inplace(&rb, 6, 9)
+	flip_range(&rb, 6, 9)
 	bc, bc_ok = rb.containers[rb.cindex[0]].(Bitmap_Container)
 	testing.expect_value(t, bc_ok, true)
 	testing.expect_value(t, bc.cardinality, 4996)
@@ -1027,7 +1027,7 @@ test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
 	testing.expect_value(t, contains(rb, 9), false)
 	testing.expect_value(t, contains(rb, 10), true)
 
-	flip_inplace(&rb, 7, 8)
+	flip_range(&rb, 7, 8)
 	bc, bc_ok = rb.containers[rb.cindex[0]].(Bitmap_Container)
 	testing.expect_value(t, bc_ok, true)
 	testing.expect_value(t, bc.cardinality, 4998)
@@ -1040,7 +1040,7 @@ test_flip_inplace_bitmap_container :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_flip_inplace_run_container :: proc(t: ^testing.T) {
+test_flip_range_run_container :: proc(t: ^testing.T) {
 	rb, _ := init()
 	defer roaring_bitmap_destroy(&rb)
 
@@ -1054,8 +1054,8 @@ test_flip_inplace_run_container :: proc(t: ^testing.T) {
 
 	// [Run{start = 0, length = 1}, Run{start = 4, length = 59996}]
 	// =>  [Run{start = 0, length = 4}, Run{start = 6, length = 59991}, Run{start = 60000, length = 4}]}]
-	flip_inplace(&rb, 1, 5)
-	flip_inplace(&rb, 59997, 60003)
+	flip_range(&rb, 1, 5)
+	flip_range(&rb, 59997, 60003)
 
 	rc, rc_ok := rb.containers[rb.cindex[0]].(Run_Container)
 	testing.expect_value(t, rc_ok, true)

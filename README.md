@@ -92,7 +92,7 @@ flip_at :: proc(rb: ^Roaring_Bitmap, n: u32) {...}
 ```
 
 ```
-flip_inplace :: proc(rb: ^Roaring_Bitmap, start: u32, end: u32) -> (ok: bool, err: runtime.Allocator_Error) {...}
+flip_range :: proc(rb: ^Roaring_Bitmap, start: u32, end: u32) -> (ok: bool, err: runtime.Allocator_Error) {...}
 ```
 
 ### AND
