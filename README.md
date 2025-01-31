@@ -1,6 +1,10 @@
 # odin-roaring-bitmap
 Implementation of 32bit [Roaring Bitmaps](https://roaringbitmap.org) in pure [Odin](https://odin-lang.org).
 
+Based on the following research paper: [https://arxiv.org/pdf/1603.06549](https://arxiv.org/pdf/1603.06549)
+
+**NOTE:** This library is still in an alpha state. The core functionality for roaring bitmaps has been implemented, but many performance optimizations & useful features are still outstanding.
+
 ## Example
 ```odin
 rb1, _ := init(context.temp_allocator)
@@ -20,6 +24,11 @@ Output:
 Bitmap 1 : [1, 2, 3, 700123]
 Bitmap 2 : [0, 4, 6, 700123]
 OR result: [0, 1, 2, 3, 4, 6, 700123]
+```
+
+## Running tests
+```
+$ just test
 ```
 
 ## Procedures
