@@ -1141,3 +1141,42 @@ test_serialization_and_deserialization :: proc(t: ^testing.T) {
 		testing.expect_value(t, contains(rb2, k), true)
 	}
 }
+
+@(test)
+test_bitmap_container_set_range :: proc(t: ^testing.T) {
+	bc := bitmap_container_init()
+
+	bitmap_container_set_range(&bc, 0, 0)
+	testing.expect_value(t, bitmap_container_contains(bc, 0), true)
+
+	bitmap_container_set_range(&bc, 0, 1)
+	testing.expect_value(t, bitmap_container_contains(bc, 0), true)
+	testing.expect_value(t, bitmap_container_contains(bc, 1), true)
+}
+
+@(test)
+test_bitmap_container_unset_range :: proc(t: ^testing.T) {
+	bc := bitmap_container_init()
+	testing.expect_value(t, bitmap_container_contains(bc, 0), false)
+	testing.expect_value(t, bitmap_container_contains(bc, 1), false)
+
+	bitmap_container_set_range(&bc, 0, 2)
+	testing.expect_value(t, bitmap_container_contains(bc, 0), true)
+	testing.expect_value(t, bitmap_container_contains(bc, 1), true)
+	testing.expect_value(t, bitmap_container_contains(bc, 2), true)
+
+	bitmap_container_unset_range(&bc, 1, 0)
+	testing.expect_value(t, bitmap_container_contains(bc, 0), true)
+	testing.expect_value(t, bitmap_container_contains(bc, 1), false)
+	testing.expect_value(t, bitmap_container_contains(bc, 2), true)
+
+	bitmap_container_unset_range(&bc, 1, 1)
+	testing.expect_value(t, bitmap_container_contains(bc, 0), true)
+	testing.expect_value(t, bitmap_container_contains(bc, 1), false)
+	testing.expect_value(t, bitmap_container_contains(bc, 2), false)
+
+	bitmap_container_unset_range(&bc, 0, 2)
+	testing.expect_value(t, bitmap_container_contains(bc, 0), false)
+	testing.expect_value(t, bitmap_container_contains(bc, 1), false)
+	testing.expect_value(t, bitmap_container_contains(bc, 2), false)
+}

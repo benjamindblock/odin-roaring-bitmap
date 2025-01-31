@@ -69,16 +69,23 @@ bitmap_container_contains :: proc(bc: Bitmap_Container, n: u16) -> (found: bool)
 	return found
 }
 
-// Sets a range of bits from 0 to 1 in a Bitmap_Container bitmap.
-// Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
+// Sets a range of bits beginning at the start and ending at length + 1 (exclusive).
 //
-// TODO: Update to u16 params instead of int
+// To set the bit at the zero position: bitmap_container_set_range(&bc, 0, 0)
+// To set the first two bits: bitmap_container_set_range(&bc, 0, 1)
+//
+// Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
 @(private)
-bitmap_container_set_range :: proc(bc: ^Bitmap_Container, start: int, length: int) {
-	end := start + length
+bitmap_container_set_range :: proc(bc: ^Bitmap_Container, start: u16, length: u16) {
+	end: u16
+	if start + length == max(u16) {
+		end = max(u16)
+	} else {
+		end = start + length + 1
+	}
 
 	x1 := start / 8
-	y1 := (end - 1) / 8
+	y1 := end / 8
 	z := 0b11111111
 
 	x2 := z << u8(start % 8)
@@ -98,11 +105,16 @@ bitmap_container_set_range :: proc(bc: ^Bitmap_Container, start: int, length: in
 // Sets a range of bits from 1 to 0 in a Bitmap_Container bitmap.
 // Ref: https://arxiv.org/pdf/1603.06549 (Page 11)
 @(private)
-bitmap_container_unset_range :: proc(bc: ^Bitmap_Container, start: int, length: int) {
-	end := start + length
+bitmap_container_unset_range :: proc(bc: ^Bitmap_Container, start: u16, length: u16) {
+	end: u16
+	if start + length == max(u16) {
+		end = max(u16)
+	} else {
+		end = start + length + 1
+	}
 
 	x1 := start / 8
-	y1 := (end - 1) / 8
+	y1 := end / 8
 	z := 0b11111111
 
 	x2 := z << u8(start % 8)
@@ -251,20 +263,22 @@ bitmap_container_and_run_container :: proc(
 		// Set the complement of the Run_List to be zero.
 		for run, i in rc.run_list {
 			if i == 0 && run.start > 0 {
-				bitmap_container_unset_range(&new_bc, 0, int(run.length) + 1)
+				bitmap_container_unset_range(&new_bc, 0, run.length)
 			} else if i > 0 {
 				prev_run := rc.run_list[i - 1]
 				complement_start := run.start - prev_run.start + 1
 				complement_length := run.start - complement_start
-				bitmap_container_unset_range(&new_bc, int(complement_start), int(complement_length))
+				bitmap_container_unset_range(&new_bc, complement_start, complement_length)
 			}
 		}
 
 		// Set any remaining bits after the last Run to be 0.
 		last_run := rc.run_list[len(rc.run_list) - 1]
-		unset_start := int(run_after_end_pos(last_run))
-		unset_length := (BYTES_PER_BITMAP * 8) - unset_start
-		bitmap_container_unset_range(&new_bc, unset_start, unset_length)
+		if run_end_position(last_run) < max(u16) {
+			unset_start := run_after_end_pos(last_run)
+			unset_length := max(u16) - unset_start
+			bitmap_container_unset_range(&new_bc, unset_start, unset_length)
+		}
 
 		// Determine the cardinality.
 		acc := 0
@@ -374,7 +388,7 @@ bitmap_container_or_run_container :: proc(
 	new_bc = c.(Bitmap_Container)
 
 	for run in rc.run_list {
-		bitmap_container_set_range(&new_bc, int(run.start), int(run.length) + 1)
+		bitmap_container_set_range(&new_bc, run.start, run.length)
 	}
 
 	new_bc.cardinality = bitmap_container_get_cardinality(new_bc)
