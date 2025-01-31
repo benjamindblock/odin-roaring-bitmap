@@ -665,7 +665,6 @@ andnot :: proc(
 andnot_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
-	allocator := context.allocator,
 ) -> (err: runtime.Allocator_Error) {
 	for k1, container1 in rb1.containers {
 		// Always delete the original container from the first Roaring_Bitmap as we will
@@ -683,7 +682,7 @@ andnot_inplace :: proc(
 			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
 			defer container_destroy(bc2)
 
-			res := bitmap_container_andnot_bitmap_container(bc1, bc2, allocator) or_return
+			res := bitmap_container_andnot_bitmap_container(bc1, bc2, rb1.allocator) or_return
 			rb1.containers[k1] = res
 		}
 	}
@@ -775,7 +774,6 @@ or :: proc(
 or_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
-	allocator := context.allocator,
 ) -> (ok: bool, err: runtime.Allocator_Error) {
 	for k1, v1 in rb1.containers {
 		// If the container in the first Roaring_Bitmap does not exist in the second,
@@ -793,29 +791,29 @@ or_inplace :: proc(
 		case Array_Container:
 			switch c2 in v2 {
 			case Array_Container:
-				rb1.containers[k1] = array_container_or_array_container(c1, c2, allocator) or_return
+				rb1.containers[k1] = array_container_or_array_container(c1, c2, rb1.allocator) or_return
 			case Bitmap_Container:
-				rb1.containers[k1] = array_container_or_bitmap_container(c1, c2, allocator) or_return
+				rb1.containers[k1] = array_container_or_bitmap_container(c1, c2, rb1.allocator) or_return
 			case Run_Container:
-				rb1.containers[k1] = array_container_or_run_container(c1, c2, allocator) or_return
+				rb1.containers[k1] = array_container_or_run_container(c1, c2, rb1.allocator) or_return
 			}
 		case Bitmap_Container:
 			switch c2 in v2 {
 			case Array_Container:
-				rb1.containers[k1] = array_container_or_bitmap_container(c2, c1, allocator) or_return
+				rb1.containers[k1] = array_container_or_bitmap_container(c2, c1, rb1.allocator) or_return
 			case Bitmap_Container:
 				rb1.containers[k1] = bitmap_container_or_bitmap_container(c1, c2)
 			case Run_Container:
-				rb1.containers[k1] = bitmap_container_or_run_container(c1, c2, allocator) or_return
+				rb1.containers[k1] = bitmap_container_or_run_container(c1, c2, rb1.allocator) or_return
 			}
 		case Run_Container:
 			switch c2 in v2 {
 			case Array_Container:
-				rb1.containers[k1] = array_container_or_run_container(c2, c1, allocator) or_return
+				rb1.containers[k1] = array_container_or_run_container(c2, c1, rb1.allocator) or_return
 			case Bitmap_Container:
-				rb1.containers[k1] = bitmap_container_or_run_container(c2, c1, allocator) or_return
+				rb1.containers[k1] = bitmap_container_or_run_container(c2, c1, rb1.allocator) or_return
 			case Run_Container:
-				rb1.containers[k1] = run_container_or_run_container(c1, c2, allocator) or_return
+				rb1.containers[k1] = run_container_or_run_container(c1, c2, rb1.allocator) or_return
 			}
 		}
 	}
@@ -823,7 +821,7 @@ or_inplace :: proc(
 	// Lastly, add any containers in the second Roaring_Bitmap that are not present in the first.
 	for k2, v2 in rb2.containers {
 		if !(k2 in rb1.containers) {
-			rb1.containers[k2] = container_clone(v2, allocator) or_return
+			rb1.containers[k2] = container_clone(v2, rb1.allocator) or_return
 			cindex_ordered_insert(rb1, k2)
 		}
 	}
@@ -887,13 +885,12 @@ xor :: proc(
 xor_inplace :: proc(
 	rb1: ^Roaring_Bitmap,
 	rb2: Roaring_Bitmap,
-	allocator := context.allocator,
 ) -> (err: runtime.Allocator_Error) {
 	for k1, container1 in rb1.containers {
 		if k1 in rb2.containers {
 			bc1 := container_clone_to_bitmap(container1) or_return
 			bc2 := container_clone_to_bitmap(rb2.containers[k1]) or_return
-			res := bitmap_container_xor_bitmap_container(bc1, bc2, allocator) or_return
+			res := bitmap_container_xor_bitmap_container(bc1, bc2, rb1.allocator) or_return
 			rb1.containers[k1] = res
 		}
 	}
@@ -901,7 +898,7 @@ xor_inplace :: proc(
 	// Add any missing containers from the second bitmap.
 	for k2, container2 in rb2.containers {
 		if !(k2 in rb1.containers) {
-			rb1.containers[k2] = container_clone(container2, allocator) or_return
+			rb1.containers[k2] = container_clone(container2, rb1.allocator) or_return
 			cindex_ordered_insert(rb1, k2)
 		}
 	}
@@ -982,11 +979,8 @@ _main :: proc() {
 	add_many(&rb2, 0, 1, 2, 3, 4, 5)
 
 	xor_inplace(&rb1, rb2)
-	exp := [4]u32{2, 3, 4, 6}
 	arr := to_array(rb1, context.temp_allocator)
-	fmt.println(exp)
 	fmt.println(arr)
-	fmt.println(slice.equal(exp[:], arr[:]))
 }
 
 main :: proc() {

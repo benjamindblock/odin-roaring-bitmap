@@ -68,7 +68,7 @@ test_to_array_after_operation :: proc(t: ^testing.T) {
 	rb2, _ := init(context.temp_allocator)
 	add_many(&rb2, 0, 1, 2, 3, 4, 5)
 
-	xor_inplace(&rb1, rb2, context.temp_allocator)
+	xor_inplace(&rb1, rb2)
 
 	act := to_array(rb1, context.temp_allocator)
 	exp := [4]u32{2, 3, 4, 6}
@@ -344,7 +344,7 @@ test_andnot_inplace_array :: proc(t: ^testing.T) {
 	testing.expect_value(t, err2, nil)
 	add(&rb2, 1)
 
-	andnot_inplace(&rb1, rb2, context.temp_allocator)
+	andnot_inplace(&rb1, rb2)
 	testing.expect_value(t, contains(rb1, 0), true)
 	testing.expect_value(t, contains(rb1, 1), false)
 	testing.expect_value(t, contains(rb1, 2), true)
@@ -395,7 +395,7 @@ test_xor_inplace_array :: proc(t: ^testing.T) {
 	testing.expect_value(t, err2, nil)
 	add_many(&rb2, 0, 1, 2, 3, 4, 5)
 
-	xor_inplace(&rb1, rb2, context.temp_allocator)
+	xor_inplace(&rb1, rb2)
 	testing.expect_value(t, contains(rb1, 0), false)
 	testing.expect_value(t, contains(rb1, 1), false)
 	testing.expect_value(t, contains(rb1, 2), true)

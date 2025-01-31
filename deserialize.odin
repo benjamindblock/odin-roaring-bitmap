@@ -2,7 +2,6 @@ package roaring
 
 import "core:encoding/endian"
 import "core:io"
-import "core:mem"
 import "core:os"
 
 // FORMAT SPEC
@@ -49,7 +48,7 @@ deserialize :: proc(filepath: string, allocator := context.allocator) -> (rb: Ro
 @(require_results)
 parse_header :: proc(
 	r: io.Reader,
-	allocator: mem.Allocator,
+	allocator := context.allocator,
 ) -> (fi: File_Info, err: Roaring_Error) {
 	parse_cookie_header(r, &fi, allocator) or_return
 	parse_descriptive_header(r, &fi, allocator) or_return
@@ -61,7 +60,7 @@ parse_header :: proc(
 parse_cookie_header :: proc(
 	r: io.Reader,
 	fi: ^File_Info,
-	allocator: mem.Allocator,
+	allocator := context.allocator,
 ) -> (err: Roaring_Error) {
 	buffer: [4]byte
 	io.read_at_least(r, buffer[:], 4)
@@ -98,7 +97,7 @@ parse_cookie_header :: proc(
 parse_descriptive_header :: proc(
 	r: io.Reader,
 	fi: ^File_Info,
-	allocator: mem.Allocator,
+	allocator := context.allocator,
 ) -> (err: Roaring_Error) {
 	buffer: [4]byte
 	infos := make([]Container_Info, fi.container_count, allocator) or_return
@@ -159,7 +158,7 @@ parse_descriptive_header :: proc(
 parse_offset_header :: proc(
 	r: io.Reader,
 	fi: ^File_Info,
-	allocator: mem.Allocator,
+	allocator := context.allocator,
 ) -> (err: Roaring_Error) {
 	buffer: [4]byte
 

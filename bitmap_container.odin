@@ -332,7 +332,7 @@ bitmap_container_xor_bitmap_container :: proc(
 
 	// Convert down to an array container if that makes sense here.
 	if set_count <= MAX_ARRAY_LENGTH {
-		c = bitmap_container_convert_to_array_container(bc) or_return
+		c = bitmap_container_convert_to_array_container(bc, allocator) or_return
 	} else {
 		c = bc
 	}
@@ -349,7 +349,6 @@ bitmap_container_xor_bitmap_container :: proc(
 bitmap_container_or_bitmap_container :: proc(
 	bc1: Bitmap_Container,
 	bc2: Bitmap_Container,
-	allocator := context.allocator,
 ) -> (new_bc: Bitmap_Container) {
 	new_bc = bitmap_container_init()
 	for byte, i in bc1.bitmap {
